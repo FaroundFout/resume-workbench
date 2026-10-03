@@ -1,0 +1,71 @@
+% Resume Workbench manual template
+% Author : Wick Dynex
+% Inspired by: https://github.com/aserador/resume-template
+% License : MIT
+% All resume content in this public template is fictional.
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{fontawesome5}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{mwe}
+\usepackage{wrapfig}
+
+\usepackage{fontspec}
+\setmainfont[
+    Path = ../font/Lato/,
+    Extension = .ttf,
+    BoldFont = Lato-Bold,
+    ItalicFont = Lato-Italic
+]{Lato-Regular}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\evensidemargin}{-0.6in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule\vspace{-5pt}]
+
+\begin{document}
+\include{custom-commands}
+
+\insertHeading
+
+\input{src/education.tex}
+
+\input{src/experience}
+
+\input{src/projects}
+
+\input{src/skills.tex}
+
+\input{src/achievements}
+
+\input{src/socialEngagements}
+
+\end{document}

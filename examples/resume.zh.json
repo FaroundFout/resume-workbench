@@ -1,0 +1,41 @@
+{
+  "language": "zh-CN",
+  "profile": {
+    "name": "示例同学",
+    "alternateName": "Example Student",
+    "title": "软件开发实习生（虚构示例）",
+    "contacts": [
+      { "id": "contact-email", "type": "email", "label": "邮箱", "value": "student@example.com" },
+      { "id": "contact-site", "type": "url", "label": "个人网站", "value": "https://example.com" }
+    ]
+  },
+  "sections": {
+    "education": {
+      "enabled": true,
+      "items": [{ "id": "education-1", "school": "示例大学（虚构）", "degree": "学士", "major": "软件工程", "period": "2021.09–2025.06", "bullets": [[{ "text": "相关课程：数据结构、数据库、软件工程。", "bold": false, "url": null }]] }]
+    },
+    "experience": {
+      "enabled": true,
+      "items": [{ "id": "experience-1", "organization": "示例软件工作室（虚构）", "role": "开发实习生", "location": "示例城市", "period": "2024.07–2024.09", "bullets": [[{ "text": "参与内部任务管理工具的接口开发与代码审查。", "bold": false, "url": null }]] }]
+    },
+    "projects": {
+      "enabled": true,
+      "items": [{ "id": "project-1", "name": "阅读记录工具（虚构）", "period": "2024.03–2024.06", "role": "个人练习", "url": "https://example.com/projects/reading", "techStack": "Java、SQL、JavaScript", "summary": [{ "text": "记录书籍、阅读进度和笔记。", "bold": false, "url": null }], "bullets": [[{ "text": "实现检索与分类功能，并为关键接口编写测试。", "bold": false, "url": null }]] }]
+    },
+    "skills": {
+      "enabled": true,
+      "items": [{ "id": "skill-1", "category": "开发基础", "content": [{ "text": "Java、SQL、Git；能够阅读英文技术文档。", "bold": false, "url": null }] }]
+    },
+    "awards": {
+      "enabled": true,
+      "items": [{ "id": "award-1", "name": "课程项目展示奖（虚构）", "period": "2024.06", "issuer": "示例大学软件工程课程", "description": [{ "text": "用于展示奖项模块的示例内容。", "bold": false, "url": null }] }]
+    },
+    "social": {
+      "enabled": true,
+      "items": [{ "id": "social-1", "organization": "校园编程社（虚构）", "role": "志愿者", "period": "2022.09–2023.06", "bullets": [[{ "text": "协助组织入门编程练习活动。", "bold": false, "url": null }]] }]
+    }
+  },
+  "sectionOrder": ["education", "experience", "projects", "skills", "awards", "social"],
+  "layout": { "paper": "auto", "fontSizePt": 10, "density": "compact", "marginMm": 10 },
+  "logo": { "mode": "default", "assetId": null, "widthCm": 2.4 }
+}

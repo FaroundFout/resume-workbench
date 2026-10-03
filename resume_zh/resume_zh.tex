@@ -1,0 +1,84 @@
+% Resume Workbench manual template
+% Author : Wick Dynex
+% Inspired by: https://github.com/aserador/resume-template
+% License : MIT
+% All resume content in this public template is fictional.
+\documentclass[a4paper,11pt]{article}
+
+\usepackage{fontawesome5}
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[unicode,hidelinks]{hyperref}
+\usepackage{accsupp}
+\usepackage{fancyhdr}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{mwe}
+\usepackage{wrapfig}
+
+\usepackage{fontspec}
+\setmainfont[
+    Path = ../font/Lato/,
+    Extension = .ttf,
+    BoldFont = Lato-Bold,
+    ItalicFont = Lato-Italic
+]{Lato-Regular}
+
+\usepackage{xeCJK}
+\setCJKmainfont[
+    Path = ../font/Simsun/,
+    Extension = .ttf,
+    BoldFont = SourceHanSerifCN-Bold
+]{SourceHanSerifCN-Regular}
+
+\hypersetup{
+  pdftitle={Fictional Resume Example},
+  pdfauthor={Example Student},
+  pdfsubject={Public fictional resume template},
+  pdflang={zh-CN},
+  pdfdisplaydoctitle=true
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlength{\footskip}{4.1pt}
+
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\evensidemargin}{-0.6in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.55in}
+\addtolength{\textheight}{1.12in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\raggedright\large
+}{}{0em}{}[\color{black}\titlerule\vspace{-5pt}]
+
+\begin{document}
+\include{custom-commands}
+
+\input{src/heading_zh.tex} 
+
+\input{src/education_zh.tex}
+
+\input{src/projects_zh.tex}
+
+\input{src/skills_zh.tex}
+
+\enlargethispage{\baselineskip}
+\input{src/achievements_zh.tex}
+
+\end{document}

@@ -1,0 +1,6 @@
+{
+  "dataDir": ".purecv",
+  "port": 3000,
+  "xelatexPath": null,
+  "compileTimeoutMs": 90000
+}

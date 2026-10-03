@@ -1,0 +1,33 @@
+# Resume files
+*.pdf
+# LaTeX intermediate files
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.bbl
+*.blg
+# MacOS file
+.DS_Store
+/.purecv/
+/config.local.json
+/docs/verification/artifacts/
+
+# Private inputs, portable backups, and local scratch outputs
+/private/
+/backups/
+*.backup.json
+private-resume*.json
+resume-backup*.json
+# Browser exports use resume-<UUID>.json; public examples do not match.
+resume-????????-????-????-????-????????????.json
+/config.*.local.json
+/.scratch/
+/.qa/
+# Python cache
+__pycache__/
+*.py[cod]

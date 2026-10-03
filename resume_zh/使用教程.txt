@@ -1,0 +1,3 @@
+xelatex resume_zh.tex
+
+清理缓存：del *.aux *.log *.out
