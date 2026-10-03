@@ -179,3 +179,180 @@ test('real integration fails explicitly on missing compiler missing font and act
   assert.match(log,/Undefined control sequence/);
   assert.equal(await f.manager.latestForResume(doc.id),null);
 });
+
+
+
+function textGlyphs(info, text) {
+  const wanted=text.replace(/\s/gu, '');
+  for (const glyphs of info.glyphPages) {
+    const page=glyphs.filter(g=>g.text.trim());
+    const flat=page.map(g=>g.text).join(''); const start=flat.indexOf(wanted);
+    if(start>=0) return page.slice(start,start+wanted.length);
+  }
+  assert.fail(`Missing native text: ${text}`);
+}
+test('original Chinese primary name uses Huge bold and alternate name uses Large actual glyph sizes', {timeout:120000},async t=>{
+  const f=await setup(t);const data=createEmptyData('zh-CN');data.logo.mode='hidden';data.layout.fontSizePt=11;
+  data.profile.name='布局示例';data.profile.alternateName='Layout Example';
+  const {info}=await f.compile(data);
+  assert.ok(textGlyphs(info,'布局示例').every(g=>Math.abs(g.size-24.8)<0.3&&g.fontname.includes('Bold')),'Huge bold primary name');
+  assert.ok(textGlyphs(info,'Layout Example').every(g=>Math.abs(g.size-14.35)<0.3),'Large alternate name');
+});
+test('original Chinese hierarchy phone rows project stack and education location have actual PDF geometry', {timeout:120000},async t=>{
+  const f=await setup(t);const data=createEmptyData('zh-CN');data.logo.mode='hidden';data.layout.fontSizePt=11;
+  data.profile.name='布局示例';data.profile.alternateName='Layout Example';
+  data.profile.contacts=[{id:'email',type:'email',label:'',value:'geometry@example.com'},{id:'phone',type:'phone',label:'',value:'123456789'}];
+  data.sections.education.items=[{id:'e',school:'示例大学',degree:'工学学士',major:'软件工程',location:'成都',period:'2024–2028',bullets:[]}];
+  data.sections.projects.items=[{id:'p',name:'PROJECT_ALPHA',period:'',role:'Developer',url:'',techStack:'STACK_ALPHA',summary:[{text:'项目概述：内容完整。',bold:false,url:null}],bullets:[]}];
+  data.sections.awards.items=[{id:'a',name:'AWARD_ALPHA',period:'2025',issuer:'ISSUER_ALPHA',description:[{text:'DESCRIPTION_ALPHA',bold:false,url:null}]}];
+  const {info,log,pdf}=await f.compile(data);
+  const name=textGlyphs(info,'布局示例'),alternate=textGlyphs(info,'Layout Example');
+  assert.ok(name.every(g=>Math.abs(g.size-24.8)<0.3),'Primary name should have original Huge size');
+  assert.ok(name.every(g=>g.fontname.includes('Bold')),'Chinese primary name must be bold as original');
+  assert.ok(alternate.every(g=>Math.abs(g.size-14.35)<0.3),'Alternate name should have original Large size');
+  assert.ok(textGlyphs(info,'123456789')[0].top<textGlyphs(info,'geometry@example.com')[0].top,'Phone precedes the other contacts row');
+  const project=textGlyphs(info,'PROJECT_ALPHA'),stack=textGlyphs(info,'STACK_ALPHA');
+  assert.ok(Math.abs(project[0].bottom-stack[0].bottom)<0.5,'Project and stack share a baseline');
+  assert.ok(stack.every(g=>g.fontname.includes('Italic')),'Technical stack is italic');
+  const degree=textGlyphs(info,'工学学士'),location=textGlyphs(info,'成都');
+  assert.ok(Math.abs(degree[0].bottom-location[0].bottom)<0.5,'Degree and location share second row');
+  assert.ok(location[0].x0>info.boxes[0][0]*0.75,'Location aligns right');
+  assert.ok(textGlyphs(info,'教育经历').every(g=>g.fontname.includes('Regular')),'Chapter title normal weight');
+  assert.ok(textGlyphs(info,'AWARD_ALPHA').every(g=>g.fontname.includes('Regular')),'Awards normal weight');
+  for(const marker of ['ISSUER_ALPHA','DESCRIPTION_ALPHA','2025'])assert.ok(normalize(info.text).includes(marker));
+  assert.doesNotMatch(log,/Overfull \\hbox/);
+  await cp(pdf,join(artifacts,'zh-original-layout.pdf'));
+  await writeFile(join(artifacts,'zh-original-layout-inspection.json'),JSON.stringify(info,null,2));
+});
+test('compact Chinese uses full undated project width and dense content while standard stays roomier', {timeout:120000},async t=>{
+  const f=await setup(t);const data=createEmptyData('zh-CN');data.logo.mode='hidden';data.layout.fontSizePt=11;
+  data.profile.name='密集示例';
+  data.sections.projects.items=[{id:'p',name:'WRAPPING_PROJECT with 中文内容 & escaped symbols',period:'',role:'',url:'',techStack:'Java Spring Boot MySQL Redis Redisson Lua Flyway STACK_END',summary:[],bullets:Array.from({length:33},(_,i)=>[{text:`要点${i+1}：完整中文内容与 Java 技术细节；说明数据一致性、事务边界与消息处理的实际行为。`,bold:false,url:null}])}];
+  data.sections.skills.items=[{id:'s',category:'技能',content:[{text:'BODY_MARKER Java 中文字符',bold:false,url:null}]}];
+  const compact=await f.compile(data);
+  assert.equal(compact.info.pages,1,'Dense Chinese case should fit one page at selected 11 pt');
+  const firstBullet=textGlyphs(compact.info,'要点1：')[0].top;
+  const headingGlyphs=compact.info.glyphPages[0].filter(g=>g.top<firstBullet&&g.top>textGlyphs(compact.info,'项目经历')[0].top+10);
+  assert.ok(Math.max(...headingGlyphs.map(g=>g.x1))>compact.info.boxes[0][0]*0.75,'Undated heading may use full width');
+  assert.ok(normalize(compact.info.text).includes('要点33：'));
+  assert.doesNotMatch(compact.log,/Overfull \\hbox/);
+  assert.ok(compact.info.bodyMarkers[0].glyphs.every(g=>Math.abs(g.size-11)<0.3));
+  data.layout.density='standard';const standard=await f.compile(data);
+  const top=info=>textGlyphs(info,'BODY_MARKER')[0].top;
+  assert.ok(standard.info.pages>compact.info.pages||top(standard.info)>top(compact.info)+10,'Standard density retains more spacing');
+  await cp(compact.pdf,join(artifacts,'zh-dense-layout.pdf'));
+});
+
+
+test('valid maximum Chinese dated project and education location remain within actual page glyph bounds', {timeout:120000},async t=>{
+  const f=await setup(t);const data=createEmptyData('zh-CN');data.logo.mode='hidden';data.layout={fontSizePt:12,marginMm:20,density:'standard',paper:'a4'};
+  data.profile.name='分页验收';
+  const repeated=(prefix,suffix)=>prefix.repeat(Math.floor((2000-suffix.length)/prefix.length))+suffix;
+  const period=repeated('长期日期内容 ', 'PERIOD_END');const location=repeated('地点中文内容 ', 'LOCATION_END');
+  const name=repeated('长项目名称中文 ', 'PROJECT_NAME_END');const stack=repeated('技术栈 Java Redis ', 'STACK_END');
+  data.sections.education.items=[{id:'e',school:'示例学校',degree:'学士',major:'软件',period:'2024–2028',location,bullets:[]}];
+  data.sections.projects.items=[{id:'p',name,period,techStack:stack,role:'ROLE_END',url:'',summary:[{text:'SUMMARY_END',bold:false,url:null}],bullets:[[{text:'FINAL_BULLET',bold:false,url:null}]]}];
+  const {info,log,pdf}=await f.compile(data);
+  assert.ok(info.pages>1,'Long valid row needs page breaks');
+  for(const marker of ['PERIOD_END','LOCATION_END','PROJECT_NAME_END','STACK_END','ROLE_END','SUMMARY_END','FINAL_BULLET'])assert.ok(normalize(info.text).includes(marker),`Native text retains ${marker}`);
+  for(const [index,glyphs]of info.glyphPages.entries()){
+    const [width,height]=info.boxes[index];
+    for(const g of glyphs.filter(g=>g.text.trim())){
+      assert.ok(g.top>=0&&g.bottom<=height+0.5,`Page ${index+1}: ${g.text} vertical bounds ${g.top}..${g.bottom} exceed ${height}`);
+      assert.ok(g.x0>=0&&g.x1<=width+0.5,`Page ${index+1}: ${g.text} horizontal bounds exceed ${width}`);
+    }
+  }
+  assert.doesNotMatch(log,/Overfull \\[hv]box/);
+  await cp(pdf,join(artifacts,'zh-maximum-rows.pdf'));
+  await writeFile(join(artifacts,'zh-maximum-rows-inspection.json'),JSON.stringify(info,null,2));
+});
+
+// Reducing spacing between project entries must not let the prior CJK bullet
+// collide with the next bold heading, even while compact body size is selected.
+for (const fontSizePt of [10, 11, 12]) {
+  test(`compact Chinese project boundary has clear actual glyph separation at ${fontSizePt} pt`, {timeout:120000}, async t=>{
+    const f=await setup(t);const data=createEmptyData('zh-CN');data.logo.mode='hidden';
+    data.profile.name='项目间距验收';data.layout.fontSizePt=fontSizePt;
+    const preceding='末行内容保留事务边界与一致性保证';
+    const following='后续项目中文标题与边界检查';
+    data.sections.projects.items=[
+      {id:'first',name:'首个项目中文标题',period:'2024–2025',role:'开发成员',url:'',techStack:'Java Redis',summary:[{text:'公开虚构项目说明。',bold:false,url:null}],bullets:[[{text:'BODY_MARKER 公开验收要点。',bold:false,url:null}],[{text:preceding,bold:false,url:null}]]},
+      {id:'second',name:following,period:'2025–2026',role:'开发成员',url:'',techStack:'Spring MySQL',summary:[],bullets:[[{text:'后续项目内容完整保留。',bold:false,url:null}]]},
+    ];
+    const {info,log,pdf}=await f.compile(data);
+    assert.equal(info.pages,1,'Small two-project fixture remains compact');
+    const tail=textGlyphs(info,preceding),heading=textGlyphs(info,following);
+    const lastBottom=Math.max(...tail.map(g=>g.bottom));
+    const lastRow=tail.filter(g=>Math.abs(g.bottom-lastBottom)<0.1);
+    const firstTop=Math.min(...heading.map(g=>g.top));
+    const firstRow=heading.filter(g=>Math.abs(g.top-firstTop)<0.1);
+    const pairs=lastRow.flatMap(a=>firstRow.filter(b=>Math.min(a.x1,b.x1)-Math.max(a.x0,b.x0)>0.05).map(b=>({clearance:b.top-a.bottom})));
+    assert.ok(pairs.length>0,'Fixture must compare horizontally intersecting CJK glyphs');
+    const clearance=Math.min(...pairs.map(pair=>pair.clearance));
+    const geometry={fontSizePt,horizontallyIntersectingPairs:pairs.length,minimumGlyphClearancePt:clearance};
+    t.diagnostic(JSON.stringify(geometry));
+    await cp(pdf,join(artifacts,`zh-project-boundary-${fontSizePt}.pdf`));
+    await writeFile(join(artifacts,`zh-project-boundary-${fontSizePt}-geometry.json`),JSON.stringify(geometry,null,2));
+    assert.ok(clearance>0,`Project boundary glyphs must have positive clearance; actual ${clearance.toFixed(3)} pt`);
+    if(fontSizePt===10)assert.ok(clearance>=7&&clearance<=10,'Default compact project boundary should restore roughly 8 pt of clear space');
+    assert.ok(tail.every(g=>Math.abs(g.size-fontSizePt)<0.3&&g.fontname.includes('Regular')),'Preceding CJK bullet keeps selected regular body size');
+    assert.ok(heading.every(g=>Math.abs(g.size-fontSizePt)<0.3&&g.fontname.includes('Bold')),'Following CJK heading keeps selected bold body size');
+    assert.ok(info.bodyMarkers[0].glyphs.every(g=>Math.abs(g.size-fontSizePt)<0.3),'Body marker keeps selected size');
+    assert.ok(normalize(info.text).includes('后续项目内容完整保留。'));
+    assert.doesNotMatch(log,/Overfull \\[hv]box/);
+  });
+}
+
+// Catch a factor ignored by either adapter, font resizing, lost final text or clipped pages.
+for (const language of ['zh-CN', 'en']) {
+  test(`actual ${language} body line spacing preserves fonts and text while increasing baselines at 1.2 and 1.5`, { timeout: 180000 }, async t => {
+    const f = await setup(t);
+    const data = createEmptyData(language); data.logo.mode = 'hidden'; data.layout.fontSizePt = 11;
+    data.profile.name = language === 'en' ? 'EN Spacing Example' : '中文行距验收';
+    data.sections.projects.items = [{
+      id: 'spacing', name: 'Wrapping project title with 中文内容 and native font metrics '.repeat(3),
+      period: '2024–2026', role: 'Developer', techStack: 'Java SQL 中文', url: '', summary: [],
+      bullets: [
+        [{ text: 'BODY_MARKER FIRST_BASELINE\nSECOND_BASELINE 正文行距中文标记\nTHIRD_BASELINE native content', bold: false, url: null }],
+        ...Array.from({ length: 55 }, (_, i) => [{ text: `公开测试要点 ${i + 1}: Native text and 中文内容 describe complete saved data and safe page breaks.`, bold: false, url: null }]),
+        [{ text: 'FINAL_SPACING_MARKER 中文末行', bold: false, url: null }],
+      ],
+    }];
+    const metrics = [];
+    let defaultGap, defaultFonts, defaultText;
+    for (const factor of [1, 1.2, 1.5]) {
+      data.layout.lineSpacing = factor;
+      const { info, log, pdf } = await f.compile(data);
+      const lines = ['FIRST_BASELINE', 'SECOND_BASELINE', 'THIRD_BASELINE'].map(marker => textGlyphs(info, marker));
+      const baselines = lines.map(glyphs => glyphs[0].bottom);
+      const gaps = [baselines[1] - baselines[0], baselines[2] - baselines[1]];
+      const bodyGlyphs = lines.flat();
+      assert.ok(bodyGlyphs.every(g => Math.abs(g.size - 11) < 0.3 && g.fontname.includes('Lato-Regular')), 'Spacing must retain selected actual body font and size');
+      assert.ok(textGlyphs(info, '正文行距中文标记').every(g => Math.abs(g.size - 11) < 0.3 && g.fontname.includes('SourceHanSerifCN-Regular')));
+      assert.ok(normalize(info.text).includes('FINAL_SPACING_MARKER中文末行'), 'Last native text must survive pagination');
+      const fonts = [...new Set(bodyGlyphs.map(g => `${g.fontname.replace(/^[A-Z]{6}\+/u, '')}:${g.size.toFixed(2)}`))];
+      const plainText = normalize(info.text);
+      if (factor === 1) {
+        defaultGap = gaps[0]; defaultFonts = fonts; defaultText = plainText;
+        assert.ok(Math.abs(defaultGap - 13.549) < 0.01, 'Default retains original 13.6 TeX pt article baseline in PDF points');
+      } else {
+        assert.deepEqual(fonts, defaultFonts);
+        assert.equal(plainText, defaultText, 'Spacing must keep all native text');
+        for (const gap of gaps) assert.ok(Math.abs(gap / defaultGap - factor) < 0.015, `Physical baseline ${gap} must scale from ${defaultGap} by ${factor}`);
+      }
+      for (const [index, glyphs] of info.glyphPages.entries()) {
+        const [width, height] = info.boxes[index];
+        for (const g of glyphs.filter(g => g.text.trim())) {
+          assert.ok(g.top >= 0 && g.bottom <= height + 0.5, `Page ${index + 1}: vertical glyph bounds ${g.top}..${g.bottom}`);
+          assert.ok(g.x0 >= 0 && g.x1 <= width + 0.5, `Page ${index + 1}: horizontal glyph bounds ${g.x0}..${g.x1}`);
+        }
+      }
+      if (factor === 1.5) assert.ok(info.pages >= 2, 'Maximum spacing supports real multipage output');
+      assert.doesNotMatch(log, /Overfull \\[hv]box/);
+      const metric = { language, factor, pages: info.pages, baselines, gaps, fonts, bodySizePt: bodyGlyphs[0].size, finalMarker: true, allGlyphsWithinPage: true };
+      t.diagnostic(JSON.stringify(metric)); metrics.push(metric);
+      await cp(pdf, join(artifacts, `${language}-line-spacing-${factor}.pdf`));
+    }
+    await writeFile(join(artifacts, `${language}-line-spacing-metrics.json`), JSON.stringify(metrics, null, 2));
+  });
+}

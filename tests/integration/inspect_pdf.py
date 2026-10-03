@@ -3,7 +3,7 @@ import json, sys
 from pypdf import PdfReader
 import pdfplumber
 reader = PdfReader(sys.argv[1])
-fonts, uris, boxes, images, sizes, body_markers = {}, [], [], [], [], []
+fonts, uris, boxes, images, sizes, body_markers, glyph_pages = {}, [], [], [], [], [], []
 for page in reader.pages:
     boxes.append([float(page.mediabox.width), float(page.mediabox.height)])
     for ref in page.get('/Annots', []):
@@ -17,6 +17,7 @@ for page in reader.pages:
             fonts[str(child.get('/BaseFont', font.get('/BaseFont', 'unknown')))] = any(key in desc for key in ['/FontFile', '/FontFile2', '/FontFile3'])
 with pdfplumber.open(sys.argv[1]) as pdf:
     for page_number, page in enumerate(pdf.pages, 1):
+        glyph_pages.append([{key: c[key] for key in ['text', 'size', 'fontname', 'x0', 'x1', 'top', 'bottom']} for c in page.chars])
         images.append([{key: im[key] for key in ['x0', 'x1', 'top', 'bottom', 'srcsize']} for im in page.images])
         sizes.extend(float(c['size']) for c in page.chars if c['text'].strip())
         text = ''.join(c['text'] for c in page.chars)
@@ -31,4 +32,4 @@ with pdfplumber.open(sys.argv[1]) as pdf:
                 position = next_position
             body_markers.append({'page': page_number, 'glyphs': glyphs})
             offset = end
-print(json.dumps({'pages': len(reader.pages), 'text': '\n'.join(p.extract_text() or '' for p in reader.pages), 'fonts': fonts, 'uris': uris, 'boxes': boxes, 'images': images, 'sizes': sizes, 'bodyMarkers': body_markers}, ensure_ascii=False))
+print(json.dumps({'pages': len(reader.pages), 'text': '\n'.join(p.extract_text() or '' for p in reader.pages), 'fonts': fonts, 'uris': uris, 'boxes': boxes, 'images': images, 'sizes': sizes, 'bodyMarkers': body_markers, 'glyphPages': glyph_pages}, ensure_ascii=False))

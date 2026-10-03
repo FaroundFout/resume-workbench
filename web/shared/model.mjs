@@ -7,7 +7,7 @@
  * @typedef {TextRun[]} RichText
  * @typedef {{id: string, type: 'phone'|'email'|'wechat'|'url', label: string, value: string}} Contact
  * @typedef {{name: string, alternateName: string, title: string, contacts: Contact[]}} Profile
- * @typedef {{id: string, school: string, degree: string, major: string, period: string, bullets: RichText[]}} EducationItem
+ * @typedef {{id: string, school: string, degree: string, major: string, period: string, location?: string, bullets: RichText[]}} EducationItem
  * @typedef {{id: string, organization: string, role: string, location: string, period: string, bullets: RichText[]}} ExperienceItem
  * @typedef {{id: string, name: string, period: string, role: string, url: string, techStack: string, summary: RichText, bullets: RichText[]}} ProjectItem
  * @typedef {{id: string, category: string, content: RichText}} SkillItem
@@ -17,7 +17,7 @@
  * @template T
  * @typedef {{enabled: boolean, items: T[]}} Section
  * @typedef {{education: Section<EducationItem>, experience: Section<ExperienceItem>, projects: Section<ProjectItem>, skills: Section<SkillItem>, awards: Section<AwardItem>, social: Section<SocialItem>}} Sections
- * @typedef {{paper: 'auto'|'a4'|'letter', fontSizePt: 10|11|12, density: 'standard'|'compact', marginMm: number}} Layout
+ * @typedef {{paper: 'auto'|'a4'|'letter', fontSizePt: 10|11|12, density: 'standard'|'compact', marginMm: number, lineSpacing?: number}} Layout
  * @typedef {{mode: 'default'|'custom'|'hidden', assetId: string|null, widthCm: number}} Logo
  * @typedef {{language: Language, profile: Profile, sections: Sections, sectionOrder: SectionKey[], layout: Layout, logo: Logo}} ResumeData
  * @typedef {{schemaVersion: 1, id: string, name: string, revision: number, updatedAt: string, data: ResumeData}} SavedResume
@@ -30,7 +30,7 @@
 
 const SECTION_KEYS = ['education', 'experience', 'projects', 'skills', 'awards', 'social'];
 const ITEM_FIELDS = {
-  education: ['id', 'school', 'degree', 'major', 'period', 'bullets'],
+  education: ['id', 'school', 'degree', 'major', 'period', 'bullets', 'location'],
   experience: ['id', 'organization', 'role', 'location', 'period', 'bullets'],
   projects: ['id', 'name', 'period', 'role', 'url', 'techStack', 'summary', 'bullets'],
   skills: ['id', 'category', 'content'],
@@ -67,7 +67,7 @@ export function validateResumeData(input) {
   const issues = [];
   let totalText = 0;
   const issue = (path, message) => issues.push({ path, message });
-  function object(value, fields, path) {
+  function object(value, fields, path, optional = []) {
     if (value === null || typeof value !== 'object' || Array.isArray(value) ||
         ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
       issue(path, '必须为对象');
@@ -77,7 +77,7 @@ export function validateResumeData(input) {
       if (!fields.includes(key)) issue(path === '$' ? key : `${path}.${key}`, '不允许的字段');
     }
     for (const key of fields) {
-      if (!Object.hasOwn(value, key)) issue(path === '$' ? key : `${path}.${key}`, '缺少字段');
+      if (!optional.includes(key) && !Object.hasOwn(value, key)) issue(path === '$' ? key : `${path}.${key}`, '缺少字段');
     }
     return true;
   }
@@ -167,8 +167,10 @@ export function validateResumeData(input) {
         uniqueIds(section.items, `${at}.items`);
         section.items.forEach((item, index) => {
           const entryPath = `${at}.items[${index}]`;
-          if (!object(item, ITEM_FIELDS[key], entryPath)) return;
+          const optional = key === 'education' ? ['location'] : [];
+          if (!object(item, ITEM_FIELDS[key], entryPath, optional)) return;
           for (const field of ITEM_FIELDS[key]) {
+            if (optional.includes(field) && !Object.hasOwn(item, field)) continue;
             const path = `${entryPath}.${field}`;
             if (field === 'bullets') bullets(item[field], path);
             else if (['summary', 'content', 'description'].includes(field)) richText(item[field], path);
@@ -184,11 +186,12 @@ export function validateResumeData(input) {
         issue('sectionOrder', '必须恰好包含六个不同的已知模块');
       }
     }
-    if (object(input.layout, ['paper', 'fontSizePt', 'density', 'marginMm'], 'layout')) {
+    if (object(input.layout, ['paper', 'fontSizePt', 'density', 'marginMm', 'lineSpacing'], 'layout', ['lineSpacing'])) {
       enumeration(input.layout.paper, ['auto', 'a4', 'letter'], 'layout.paper');
       enumeration(input.layout.fontSizePt, [10, 11, 12], 'layout.fontSizePt');
       enumeration(input.layout.density, ['standard', 'compact'], 'layout.density');
       dimension(input.layout.marginMm, 8, 20, 'layout.marginMm');
+      if (Object.hasOwn(input.layout, 'lineSpacing')) dimension(input.layout.lineSpacing, 1, 1.5, 'layout.lineSpacing');
     }
     if (object(input.logo, ['mode', 'assetId', 'widthCm'], 'logo')) {
       enumeration(input.logo.mode, ['default', 'custom', 'hidden'], 'logo.mode');

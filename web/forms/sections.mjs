@@ -3,7 +3,7 @@ import { mountRichText } from '../rich-text.mjs';
 
 export const SECTION_LABELS = { education: '教育经历', experience: '实习与工作', projects: '项目经历', skills: '专业技能', awards: '荣誉奖项', social: '社会实践' };
 const fields = {
-  education: [['school', '学校'], ['degree', '学位'], ['major', '专业'], ['period', '时间']],
+  education: [['school', '学校'], ['degree', '学位'], ['major', '专业'], ['location', '地点'], ['period', '时间']],
   experience: [['organization', '公司 / 组织'], ['role', '职位'], ['location', '地点'], ['period', '时间']],
   projects: [['name', '项目名称'], ['period', '时间'], ['role', '角色'], ['url', '项目链接'], ['techStack', '技术栈']],
   skills: [['category', '技能类别']],
@@ -56,7 +56,7 @@ export function mountSections(container, { data, onChange, sectionKey }) {
         const group = element('fieldset', 'entry'); group.append(element('legend', '', `${SECTION_LABELS[key]} ${index + 1}`));
         itemControls(group, index, current.sections[key].items.length, to => { setItems(key, moveItem(current.sections[key].items, index, to)); render(); }, () => { setItems(key, current.sections[key].items.filter(entry => entry.id !== item.id)); render(); }, SECTION_LABELS[key]);
         const rows = element('div', 'field-grid'); group.append(rows);
-        for (const [name, label] of fields[key]) field(rows, label, item[name], value => editItem(key, item.id, name, value), { type: name === 'url' ? 'url' : 'text' });
+        for (const [name, label] of fields[key]) field(rows, label, item[name] ?? '', value => editItem(key, item.id, name, value), { type: name === 'url' ? 'url' : 'text' });
         if (descriptions[key]) {
           const [name, label] = descriptions[key]; rich(group, label, item[name], value => editItem(key, item.id, name, value));
         }

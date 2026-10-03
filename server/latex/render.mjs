@@ -17,22 +17,33 @@ function bullets(items) {
 function heading(title, period) {
   return `\\resumeHeading{${title}}{${text(period)}}\n`;
 }
-function itemTex(key, item) {
+function itemTex(key, item, chinese = false) {
+  const row = (left, right, bold = true) => chinese
+    ? `\\resumeZhRow{${bold ? `\\textbf{${left}}` : left}}{${text(right || '')}}\n`
+    : heading(left, right);
   switch (key) {
     case 'education':
-      return heading(text(item.school), item.period) + paragraph(joined([item.degree, item.major])) + bullets(item.bullets);
+      return row(text(item.school), item.period) + (chinese
+        ? row(`\\textit{${joined([item.degree, item.major])}}`, item.location, false)
+        : paragraph(joined([item.degree, item.major, item.location]))) + bullets(item.bullets);
     case 'experience':
-      return heading(text(item.organization), item.period) + paragraph(joined([item.role, item.location])) + bullets(item.bullets);
+      return row(text(item.organization), item.period) + (chinese
+        ? row(`\\textit{${text(item.role)}}`, item.location, false)
+        : paragraph(joined([item.role, item.location]))) + bullets(item.bullets);
     case 'projects': {
       const title = item.url ? renderRichText([{ text: item.name, bold: false, url: item.url }]) : text(item.name);
-      return heading(title, item.period) + paragraph(joined([item.role, item.techStack])) + paragraph(renderRichText(item.summary)) + bullets(item.bullets);
+      const projectTitle = chinese ? `\\textbf{${title}}${item.techStack ? ` $|$ \\textit{${text(item.techStack)}}` : ''}` : title;
+      const summary = renderRichText(item.summary);
+      return row(projectTitle, item.period, !chinese) + paragraph(chinese ? text(item.role) : joined([item.role, item.techStack]))
+        + paragraph(chinese && summary ? `\\hspace*{2em}${summary}` : summary) + bullets(item.bullets);
     }
     case 'skills':
       return `\\resumeSkill{${text(item.category)}}{${renderRichText(item.content)}}\n`;
     case 'awards':
-      return heading(text(item.name), item.period) + paragraph(text(item.issuer)) + paragraph(renderRichText(item.description));
+      return chinese ? paragraph([text(item.name), text(item.issuer), text(item.period), renderRichText(item.description)].filter(Boolean).join(' \\quad '))
+        : heading(text(item.name), item.period) + paragraph(text(item.issuer)) + paragraph(renderRichText(item.description));
     case 'social':
-      return heading(text(item.organization), item.period) + paragraph(text(item.role)) + bullets(item.bullets);
+      return row(text(item.organization), item.period) + paragraph(text(item.role)) + bullets(item.bullets);
     default: throw new AppError('INVALID_DATA', '未知的简历模块');
   }
 }
@@ -49,6 +60,14 @@ function profileTex(data) {
     const value = url ? renderRichText([{ text: contact.value, bold: false, url }]) : text(contact.value);
     return `\\resumeContact{${label}}{${ICONS[contact.type]}} ${value}`;
   });
+  if (data.language === 'zh-CN') {
+    const primary = `{\\Huge\\bfseries ${text(profile.name)}}`;
+    const alternate = profile.alternateName ? ` {\\fontsize{14.4pt}{17pt}\\selectfont (${text(profile.alternateName)})}` : '';
+    const phones = contacts.filter((_, index) => profile.contacts[index].type === 'phone');
+    const other = contacts.filter((_, index) => profile.contacts[index].type !== 'phone');
+    return `${primary}${alternate}\\par\\vspace{0.5em}\n` + paragraph(text(profile.title))
+      + paragraph(phones.join(' \\quad ')) + paragraph(other.join(' \\quad '));
+  }
   return `{\\LARGE\\bfseries ${name}}\\par\n` + paragraph(text(profile.title)) + paragraph(contacts.join(' \\quad '));
 }
 function fill(template, values) {
@@ -75,12 +94,22 @@ export function renderResume(data, refs, template) {
     ? `\\noindent\\begin{minipage}[c]{\\dimexpr\\linewidth-${data.logo.widthCm}cm-1em\\relax}\n${profile}\\end{minipage}\\hfill\n\\begin{minipage}[c]{${data.logo.widthCm}cm}\n\\raggedleft\\includegraphics[width=${data.logo.widthCm}cm,height=3.2cm,keepaspectratio]{${refs.logoFile}}\n\\end{minipage}\\par\n`
     : `\\begin{center}\n${profile}\\end{center}\n`;
   const sections = data.sectionOrder.filter(key => data.sections[key].enabled && data.sections[key].items.length)
-    .map(key => `\\section{${TITLES[data.language][key]}}\n${data.sections[key].items.map(item => itemTex(key, item)).join('\n')}`).join('\n');
+    .map(key => {
+      const chinese = data.language === 'zh-CN';
+      const items = data.sections[key].items.map(item => `${chinese ? '\\item ' : ''}${itemTex(key, item, chinese)}`).join('\n');
+      const content = chinese ? (key === 'awards' ? `\\begin{itemize}\n${items}\\end{itemize}\n`
+        : `\\begin{resumeZhEntries}${key === 'skills' ? '[2pt]' : key === 'projects' && compact ? '[11pt]' : ''}\n${items}\\end{resumeZhEntries}\n`) : items;
+      return `\\section{${TITLES[data.language][key]}}\n${content}`;
+    }).join('\n');
   const values = {
     PAPER: `${paper}paper`, FONT_SIZE: String(data.layout.fontSizePt), MARGIN: String(data.layout.marginMm),
     FONT_DIR: `${refs.fontDir.replace(/\/$/u, '')}/`, LANGUAGE: data.language,
     PAR_SKIP: compact ? '1pt' : '3pt', ITEM_SKIP: compact ? '1pt' : '3pt', SECTION_SKIP: compact ? '6pt' : '10pt',
     HEADER: header, SECTIONS: sections,
+    // Missing/1 retains the legacy TeX exactly; only body baselines scale.
+    BODY_LINE_SPACING: (data.layout.lineSpacing ?? 1) === 1 ? '' : `\\linespread{${data.layout.lineSpacing}}\\selectfont\n`,
+    ZH_ENTRY_SKIP: compact ? '2pt' : '5pt', ZH_LIST_END: compact ? '-5pt' : '0pt',
+    ZH_PAGE_EXTRA: compact && data.language === 'zh-CN' ? '\\enlargethispage{\\baselineskip}' : '',
   };
   return { mainTex: fill(template.main, values), macrosTex: fill(template.macros, values) };
 }

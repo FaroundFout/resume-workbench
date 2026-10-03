@@ -31,6 +31,17 @@ function checkRevision(doc, expectedRevision) {
     throw new AppError('REVISION_CONFLICT', '简历已被其他页面修改，请保留草稿后重新载入', 409, { expectedRevision, actualRevision: doc.revision });
   }
 }
+// A short Windows share lock can block either file replacement or staged
+// directory publication. Retry only rename; never remove a complete destination.
+async function renameWithRetry(from, to) {
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(from, to); return; }
+    catch (error) {
+      if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error;
+      await delay(20 * 2 ** attempt);
+    }
+  }
+}
 async function atomicWrite(path, bytes) {
   const temporary = `${path}.${randomUUID()}.tmp`;
   let handle;
@@ -40,15 +51,7 @@ async function atomicWrite(path, bytes) {
     await handle.sync();
     await handle.close();
     handle = null;
-    // Windows scanners/indexers can hold a short-lived share lock. Always
-    // retry the replacement itself; never unlink the old complete record.
-    for (let attempt = 0; ; attempt++) {
-      try { await rename(temporary, path); break; }
-      catch (error) {
-        if (!['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 5) throw error;
-        await delay(20 * 2 ** attempt);
-      }
-    }
+    await renameWithRetry(temporary, path);
   } finally {
     if (handle) await handle.close();
     await rm(temporary, { force: true });
@@ -141,7 +144,7 @@ export async function createStore({ dataDir }) {
       await mkdir(join(staging, 'assets'), { recursive: true });
       if (logoImage) await atomicWrite(join(staging, 'assets', data.logo.assetId), logoImage.bytes);
       await atomicWrite(join(staging, 'resume.json'), JSON.stringify(doc));
-      await rename(staging, resumeDirectory(id));
+      await renameWithRetry(staging, resumeDirectory(id));
       return structuredClone(doc);
     } finally {
       await rm(staging, { recursive: true, force: true });

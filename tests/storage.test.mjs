@@ -204,3 +204,54 @@ test('permanent rename denial fails boundedly without deleting old record or lea
     } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   });
 });
+
+
+// Fault injection only intercepts directory publication; real record/assets,
+// listing and cleanup run on disk, so retrying file writes cannot satisfy this.
+test('transient directory publication denial still creates one complete resume with its owned image', async t=>{
+  const fs=await import('node:fs/promises');const {syncBuiltinESMExports}=await import('node:module');
+  await withStore(async (store,dataDir)=>{
+    const source=await store.create({name:'source',language:'en'});
+    const bytes=await png();const asset=await putAsset(store,source.id,bytes);
+    source.data.logo={mode:'custom',assetId:asset.id,widthCm:2.4};
+    await store.save(source.id,{expectedRevision:0,data:source.data});
+    const original=await readFile(join(dataDir,'resumes',source.id,'resume.json'));
+    const real=fs.default.rename;let attempts=0;
+    t.mock.method(fs.default,'rename',async(from,to)=>{
+      if(from.includes('.pending-')&&!from.endsWith('.tmp')){
+        attempts++;
+        assert.deepEqual((await store.list()).map(d=>d.id),[source.id]);
+        assert.equal(JSON.parse(await readFile(join(from,'resume.json'),'utf8')).revision,0);
+        if(attempts<3)throw Object.assign(new Error('directory share denial'),{code:attempts===1?'EPERM':'EBUSY'});
+      }
+      return real(from,to);
+    });syncBuiltinESMExports();
+    try{
+      const copy=await store.copy(source.id,{name:'copy',language:'zh-CN',draft:source.data});
+      assert.equal(attempts,3);assert.equal((await store.read(copy.id)).revision,0);
+      assert.notEqual(copy.data.logo.assetId,asset.id);
+      assert.deepEqual(await readAsset(store,copy.id,copy.data.logo.assetId),bytes);
+      assert.deepEqual(await readFile(join(dataDir,'resumes',source.id,'resume.json')),original);
+      assert.deepEqual((await readdir(join(dataDir,'resumes'))).sort(),[source.id,copy.id].sort());
+    }finally{t.mock.restoreAll();syncBuiltinESMExports();}
+  });
+});
+test('permanent directory publication denial is bounded and cleans staging without touching existing records',async t=>{
+  const fs=await import('node:fs/promises');const {syncBuiltinESMExports}=await import('node:module');
+  await withStore(async(store,dataDir)=>{
+    const original=await store.create({name:'original',language:'en'});
+    const before=await readFile(join(dataDir,'resumes',original.id,'resume.json'));
+    const real=fs.default.rename;let attempts=0;
+    t.mock.method(fs.default,'rename',async(from,to)=>{
+      if(from.includes('.pending-')&&!from.endsWith('.tmp')){attempts++;throw Object.assign(new Error('persistent directory denial'),{code:'EACCES'});}
+      return real(from,to);
+    });syncBuiltinESMExports();const started=Date.now();
+    try{
+      await assert.rejects(store.create({name:'new',language:'en'}),code('EACCES'));
+      assert.ok(attempts>1&&attempts<=6,'Directory publication must retry but stay bounded');
+      assert.ok(Date.now()-started<3000);
+      assert.deepEqual(await readdir(join(dataDir,'resumes')),[original.id]);
+      assert.deepEqual(await readFile(join(dataDir,'resumes',original.id,'resume.json')),before);
+    }finally{t.mock.restoreAll();syncBuiltinESMExports();}
+  });
+});
