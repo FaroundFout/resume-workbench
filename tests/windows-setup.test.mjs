@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, cp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -33,35 +33,54 @@ async function localNode(root) {
 async function manifest(root, sha256 = '0'.repeat(64), version = process.versions.node) {
   await writeFile(join(root, 'scripts/node-runtime.json'), JSON.stringify({ version, sha256: { x64: sha256, arm64: sha256 } }));
 }
-async function cmd(root, name, args = '', path = systemPath, cwd = root) {
+async function cmd(root, name, args = '', path = systemPath, cwd = root, env = {}) {
   return exec(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${join(root, name)}" ${args}"`],
-    { cwd, env: { ...process.env, PATH: path }, windowsHide: true, windowsVerbatimArguments: true, timeout: 90000 });
+    { cwd, env: { ...process.env, PATH: path, ...env }, windowsHide: true, windowsVerbatimArguments: true, timeout: 90000 });
 }
 const loadModule = root => `. ${quote(join(root, 'scripts/node-runtime.ps1'))}\r\n`;
+async function oldNodeFixture(root, cwd) {
+  const directory = join(root, 'shadow old Node !'); await mkdir(directory);
+  const executable = join(directory, 'node.exe'); await cp(process.execPath, executable);
+  const targets = [executable];
+  if (cwd) { const executable = join(cwd, 'node.exe'); await cp(process.execPath, executable); targets.push(executable); }
+  const marker = join(directory, 'invoked.txt');
+  const preload = join(directory, 'old-version.cjs');
+  // Real native Node executables exercise CMD resolution. Only these shadow
+  // executables report a controlled legacy version; the local runtime is untouched.
+  await writeFile(preload, `
+    if (${JSON.stringify(targets.map(path => path.toLowerCase()))}.includes(process.execPath.toLowerCase())) {
+      require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'legacy Node invoked\\n');
+      Object.defineProperty(process.versions, 'node', { value: '20.0.0' });
+    }
+  `);
+  return { directory, marker, env: { NODE_OPTIONS: `--require="${preload.replaceAll('\\', '/')}"` } };
+}
 
 test('Windows launcher prefers local Node over old cwd/PATH Node and passes arguments and exit status', windows, async t => {
   const root = await fixture(t); await localNode(root);
   await writeFile(join(root, 'server/index.mjs'), 'console.log(JSON.stringify({exe:process.execPath,args:process.argv.slice(2),path:process.env.PATH}));process.exit(23);');
   const cwd = join(root, 'outside !'); await mkdir(cwd);
-  const old = join(process.env.ProgramFiles || 'C:/Program Files', 'nodejs/node.exe');
-  await cp(old, join(cwd, 'node.exe'));
-  await assert.rejects(cmd(root, 'start.cmd', '--no-open "two words ! 中文"', dirname(old) + ';' + systemPath, cwd), error => {
-    assert.equal(error.code, 23); const result = JSON.parse(error.stdout.trim());
+  const old = await oldNodeFixture(root, cwd);
+  await assert.rejects(cmd(root, 'start.cmd', '--no-open "two words ! 中文"', old.directory + ';' + systemPath, cwd, old.env), error => {
+    assert.equal(error.code, 23, error.stdout + error.stderr); const result = JSON.parse(error.stdout.trim());
     assert.equal(result.exe, join(root, '.runtime/node/node.exe'));
     assert.deepEqual(result.args, ['--no-open', 'two words ! 中文']);
     assert.equal(result.path.split(';')[0], join(root, '.runtime/node'));
     return true;
   });
+  await assert.rejects(access(old.marker), { code: 'ENOENT' });
 });
 
 test('Windows launcher explains setup for missing or old Node without starting the server', windows, async t => {
   const root = await fixture(t);
   await writeFile(join(root, 'server/index.mjs'), 'console.log("SERVER_STARTED");');
-  for (const path of [systemPath, join(process.env.ProgramFiles || 'C:/Program Files', 'nodejs') + ';' + systemPath]) {
-    await assert.rejects(cmd(root, 'start.cmd', '', path), error => {
+  const old = await oldNodeFixture(root);
+  for (const path of [systemPath, old.directory + ';' + systemPath]) {
+    await assert.rejects(cmd(root, 'start.cmd', '', path, root, old.env), error => {
       assert.equal(error.code, 1); assert.match(error.stdout, /setup\.cmd/); assert.doesNotMatch(error.stdout, /SERVER_STARTED/); return true;
     });
   }
+  assert.match(await readFile(old.marker, 'utf8'), /legacy Node invoked/);
 });
 
 test('PowerShell 5.1 maps native architecture and rejects unsupported machines', windows, async t => {
@@ -91,13 +110,14 @@ test('setup.cmd works offline without system Node, reuses healthy runtime and ch
 });
 
 test('download, checksum, extraction and version failures preserve existing runtime in PowerShell 5.1', windows, async t => {
-  const root = await fixture(t); await localNode(root); await manifest(root, '0'.repeat(64), '24.21.0');
+  const fixtureVersion = `${Number(process.versions.node.split('.')[0]) + 1}.0.0`;
+  const root = await fixture(t); await localNode(root); await manifest(root, '0'.repeat(64), fixtureVersion);
   const nodePath = join(root, '.runtime/node/node.exe'); const before = await readFile(nodePath);
   // The only replaced boundary downloads bytes. Hashing, extraction, validation and publication stay real.
   for (const failure of ['download', 'checksum', 'extraction', 'version']) {
     const archive = join(root, 'fixture.zip');
     if (failure === 'version') {
-      const payload = join(root, 'node-v24.21.0-win-x64'); await mkdir(payload, { recursive: true });
+      const payload = join(root, `node-v${fixtureVersion}-win-${process.arch}`); await mkdir(payload, { recursive: true });
       await cp(process.execPath, join(payload, 'node.exe'));
       await ps(root, `Compress-Archive -LiteralPath ${quote(payload)} -DestinationPath ${quote(archive)} -Force`);
     } else await writeFile(archive, 'invalid ZIP');
