@@ -16,6 +16,8 @@ test('missing compiler has an accessible help entry that explains setup while ed
   const dialog = host.all().find(node => node.tagName === 'dialog'); assert.equal(dialog.open, true);
   const content = dialog.all().map(node => node.textContent || '').join(' ');
   assert.match(content, /MiKTeX/); assert.match(content, /TeX Live/);
+  assert.match(content, /setup\.cmd/); assert.match(content, /start\.cmd/); assert.match(content, /\.runtime\/node/);
+  assert.match(content, /Linux\/macOS/); assert.match(content, /首次.*联网/);
   assert.match(content, /config.local.json/); assert.match(content, /xelatexPath/);
   assert.match(content, /重新启动/); assert.match(content, /保存和备份/); assert.match(content, /宏包/);
   assert.match(content, /手动翻译/); assert.match(content, /更新预览/);

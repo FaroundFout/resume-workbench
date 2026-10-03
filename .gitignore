@@ -15,6 +15,7 @@
 .DS_Store
 /.purecv/
 /config.local.json
+/.runtime/
 /docs/verification/artifacts/
 
 # Private inputs, portable backups, and local scratch outputs

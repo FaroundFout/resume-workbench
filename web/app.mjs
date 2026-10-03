@@ -218,7 +218,8 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     dialog.replaceChildren(); dialog.setAttribute('aria-label', '环境与使用帮助');
     dialog.append(element('h2', '', '环境与使用帮助'));
     for (const text of [
-      '需要 Node.js 22 或更新版本。生成 PDF 还需要安装包含 XeLaTeX 的 MiKTeX 或 TeX Live；未找到编译器时，仍可编辑、保存和备份。',
+      'Windows 首次运行 setup.cmd，再运行 start.cmd。setup 首次需要联网，自动准备 .runtime/node 中的项目专用 Node，无需管理员权限或预装系统 Node，也不会修改系统 PATH。Linux/macOS 需要手动安装 Node.js 22 或更新版本。',
+      '生成 PDF 还需要安装包含 XeLaTeX 的 MiKTeX 或 TeX Live；未找到编译器时，仍可编辑、保存和备份。找到 XeLaTeX 只确认编译器身份，首次 PDF 编译才验证宏包是否齐全；setup 不安装编译器或宏包，MiKTeX 官方入口为 https://miktex.org/download。',
       '启动时会检测已有编译器。若已安装却未找到，请把 config.example.json 复制为项目根目录的 config.local.json，设置 xelatexPath 为完整的 xelatex.exe（其他系统为 xelatex）路径，再重新启动服务。Windows JSON 路径建议使用正斜杠。',
       '如果编译日志提示缺少 .sty 宏包，请通过发行版管理工具手动补齐，或安装完整发行版后重试。本程序不会自动安装宏包。',
       '内容停止输入后约 800ms 自动保存；更新预览需要手动点击，按钮会等待最新内容保存。编译失败时保留上次成功 PDF，下载前检查修订提示。',

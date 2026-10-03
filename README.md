@@ -3,17 +3,23 @@
 [中文](README_zh.md) · [Detailed local editor guide](docs/local-editor.md)
 
 > [!IMPORTANT]
-> **Install Node.js 22 or newer on your computer before starting the web editor. Node.js 24 LTS is recommended.**
-> **Node.js 20 and older are unsupported and rejected by the launchers. Downloading or cloning this project does not install Node.js.**
-> On Windows, choose the **Windows Installer (`.msi`)**. This project does not require Docker; **do not copy the Node website's `docker pull` / `docker run` commands to install Node on your computer**.
+> **Windows: run `setup.cmd` first, then `start.cmd`. No preinstalled Node or administrator rights are needed.**
+> **The first setup needs internet access to download pinned portable Node.js 24.21.0 from nodejs.org; it verifies SHA256 before use and stores it in `.runtime/node/`.** A healthy runtime is reused offline. Setup leaves the system Node, registry and global PATH alone.
+> **Linux/macOS: install Node.js 22+ manually. PDF generation on every platform additionally needs XeLaTeX and the template packages (MiKTeX or TeX Live).** This project requires neither npm install nor Docker.
 
 Resume Workbench combines the original XeLaTeX resume templates with a local browser editor. Edit Chinese or English resumes by section, adjust layout, replace the logo, and generate a PDF preview and download. Each language has independent content; choosing a template does not translate your text.
 
-Version one ships editable source, **not a packaged runtime**. It requires **Node.js 22+**; PDF generation additionally requires **XeLaTeX and the template packages** from MiKTeX or TeX Live. Lato and **Source Han Serif** fonts are included and do not need separate font installation. The local server uses Node's standard library: no npm install, frontend build, Docker, or paid server is needed.
+The project ships editable source. Windows setup downloads a project-local runtime; Node is not vendored in Git. The editor requires **Node.js 22+**; PDF generation additionally requires **XeLaTeX and the template packages** from MiKTeX or TeX Live. Lato and **Source Han Serif** fonts are included and do not need separate font installation. The local server uses Node's standard library: no npm install, frontend build, Docker, or paid server is needed.
 
-## First-time setup: install Node.js first (required)
+## First-time Windows setup
 
-### Windows installation and version check
+1. Clone or download the complete project into a writable folder and double-click **`setup.cmd`** (or run `.\setup.cmd` in PowerShell). It uses Windows PowerShell 5.1 to download official portable Node for native x64 or ARM64 Windows and validate its checksum, version and architecture. Other architectures are unsupported.
+2. Read the result, then double-click **`start.cmd`** (or run `.\start.cmd`). Setup does not start the server. `setup.cmd --no-pause` is available for automation; otherwise its window remains readable until a key is pressed.
+3. Setup checks your existing XeLaTeX using the same configuration/discovery as the editor. If missing, Node/editor features still work; install [MiKTeX](https://miktex.org/download) or TeX Live for PDF generation and follow the [guide](docs/local-editor.md). **Finding XeLaTeX confirms compiler identity; the first PDF compilation verifies package availability.** Setup installs no compiler/packages and writes no local configuration.
+
+`start.cmd` prefers this project's `.runtime/node/node.exe` even when an older system Node is present. Its PATH change applies only to the launched process and its children. `.runtime/` is Git ignored; it contains downloaded runtimes and temporary files, and must not be committed. Rerun setup to repair an incorrect/broken runtime; download or validation failures preserve an existing runtime. Setup needs neither system Node nor administrator rights and makes no global installation changes.
+
+### Alternative: manually install system Node
 
 1. Open the [official Node.js download page](https://nodejs.org/en/download), select **Node.js 24 LTS and Windows**, and click **Windows Installer (`.msi`)** in the prebuilt downloads area. Choose **x64** for Intel / AMD 64-bit PCs or **ARM64** for Windows ARM PCs. If you already have Node.js 20, upgrade it first.
 2. Run the `.msi` installer with its default options, keeping **Add to PATH** enabled. **Close your existing PowerShell / CMD window and open a new terminal after installation** so it can find the new version.
@@ -31,7 +37,7 @@ Version one ships editable source, **not a packaged runtime**. It requires **Nod
    ```
 
 > [!WARNING]
-> If startup reports **`Node.js 22 or newer is required.`**, complete the version check and local installation above. Node inside a Docker container is separate from Node on Windows; pulling a Node Docker image does not upgrade your computer's `node` command.
+> If startup reports **`Node.js 22 or newer is required.`**, run `setup.cmd` to prepare or repair the local runtime, or complete the manual installation above. Without a local runtime, `start.cmd` accepts system Node 22+. Node inside a Docker container is separate from Node on Windows; pulling a Node Docker image does not upgrade your computer's `node` command.
 
 > [!NOTE]
 > **PDF generation also requires XeLaTeX (MiKTeX or TeX Live) and the template packages.** Node.js alone enables editing, saving, and backups. See the [detailed guide](docs/local-editor.md) for PDF environment setup. No `npm install` is needed.
@@ -42,7 +48,7 @@ Use the project root containing `server/` and the launchers:
 
 - Windows: double-click `start.cmd` or run `.\start.cmd` in a terminal.
 - Linux/macOS: run `sh ./start.sh`.
-- Direct entry: `node server/index.mjs`; append `--no-open` to skip opening the browser.
+- Direct entry with manual Node: `node server/index.mjs`; append `--no-open` to skip opening the browser. With portable Windows Node, use `.runtime\node\node.exe server/index.mjs` or `start.cmd --no-open`.
 
 The default address is [http://127.0.0.1:3000](http://127.0.0.1:3000). Keep the terminal running; press Ctrl+C to stop. An empty data directory is initialized with two fictional examples. Personal imports are separate and never become the public defaults.
 

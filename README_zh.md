@@ -3,17 +3,23 @@
 [English](README.md) · [本地编辑器详细说明](docs/local-editor.md)
 
 > [!IMPORTANT]
-> **启动网页编辑器前，必须先在本机安装 Node.js 22 或以上版本，推荐 Node.js 24 LTS。**
-> **Node.js 20 及更低版本不受支持，启动脚本会拒绝运行；下载或克隆本项目不会自动安装 Node.js。**
-> Windows 用户请选择 **Windows Installer（`.msi`）** 安装包。本项目无需 Docker，**不要复制 Node 官网的 `docker pull` / `docker run` 命令来安装本机 Node**。
+> **Windows：首次先运行 `setup.cmd`，再运行 `start.cmd`。无需预装系统 Node 或管理员权限。**
+> **首次准备需要联网，从 nodejs.org 下载固定版本 Node.js 24.21.0，校验 SHA256 后放在项目 `.runtime/node/`。** 已有健康 runtime 时可离线复用，不会修改系统 Node、注册表或全局 PATH。
+> **Linux/macOS 仍需手动安装 Node.js 22+。所有平台生成 PDF 另需 XeLaTeX 和模板宏包（MiKTeX 或 TeX Live）。** 本项目无需 npm 安装或 Docker。
 
 Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并提供本机网页编辑器。你可以分模块编辑中文或英文简历、调整版式、替换校徽，再通过 XeLaTeX 更新 PDF 预览与下载。中文与英文独立保存，切换模板不会自动翻译文字。
 
-第一版是可修改的源码，尚未打包运行环境。需要 **Node.js 22+**；生成 PDF 另需 **XeLaTeX 和模板所需宏包**（MiKTeX 或 TeX Live）。项目内含 Lato 和**思源宋体（Source Han Serif）**字体，不需要额外安装这些字体。网页服务只用 Node 标准库，不需要 npm 安装、前端构建、Docker 或付费服务器。
+本项目提供可修改的源码；Windows setup 另外下载项目专用运行环境，Node 不提交到 Git。网页编辑器需要 **Node.js 22+**；生成 PDF 另需 **XeLaTeX 和模板所需宏包**（MiKTeX 或 TeX Live）。项目内含 Lato 和**思源宋体（Source Han Serif）**字体，不需要额外安装这些字体。网页服务只用 Node 标准库，不需要 npm 安装、前端构建、Docker 或付费服务器。
 
-## 首次使用：先安装 Node.js（必读）
+## Windows 首次准备
 
-### Windows 安装与检查
+1. 克隆或下载完整项目，放在可写目录。双击 **`setup.cmd`**，或在 PowerShell 运行 `.\setup.cmd`。脚本用 Windows PowerShell 5.1 下载原生 x64 或 ARM64 Windows 的官方 portable Node，校验哈希、版本与架构；其他架构会明确拒绝。
+2. 阅读准备结果，再双击 **`start.cmd`**，或运行 `.\start.cmd`。setup 不会自动启动服务。自动化可用 `setup.cmd --no-pause`；正常双击窗口会等待按键，便于看清结果。
+3. setup 按编辑器现有配置与检测规则检查 XeLaTeX。缺失时仍可编辑、保存和备份；需要 PDF 时安装 [MiKTeX](https://miktex.org/download) 或 TeX Live，步骤见[详细说明](docs/local-editor.md)。**找到 XeLaTeX 仅确认编译器身份，首次 PDF 编译才验证宏包是否齐全。** setup 不安装编译器/宏包，也不写本地配置。
+
+`start.cmd` 优先使用项目 `.runtime/node/node.exe`，即使电脑已有旧版 Node 也不会冲突。启动时的 PATH 调整仅作用于当前进程及其子进程。`.runtime/` 已被 Git 忽略，下载运行环境、ZIP 与临时文件不能提交；runtime 损坏或版本错误时重新运行 setup 修复。下载或验证失败会保留已有 runtime。无需系统 Node、管理员权限或全局安装修改。
+
+### 备选：手动安装系统 Node
 
 1. 打开 [Node.js 官方下载页](https://nodejs.org/en/download)，选择 **Node.js 24 LTS 和 Windows**，在页面的预编译下载区域点击 **Windows Installer（`.msi`）**。普通 Intel / AMD 64 位电脑选 **x64**；Windows ARM 电脑选 **ARM64**。已经安装 Node.js 20 的用户也需要升级。
 2. 双击 `.msi` 安装包，按默认选项完成安装，保留 **Add to PATH** 选项。**安装后关闭原来的 PowerShell / CMD，再打开新终端**，让新版本生效。
@@ -31,7 +37,7 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
    ```
 
 > [!WARNING]
-> 如果启动时出现 **`Node.js 22 or newer is required.`**，请先完成上面的版本检查和本机安装。Docker 容器里的 Node 与 Windows 本机 Node 是两套环境，拉取 Node Docker 镜像不会升级本机的 `node` 命令。
+> 如果启动时出现 **`Node.js 22 or newer is required.`**，运行 `setup.cmd` 准备或修复项目 runtime，或完成上面的手动安装。没有项目 runtime 时，`start.cmd` 接受系统 Node 22+。Docker 容器里的 Node 与 Windows 本机 Node 是两套环境，拉取 Node Docker 镜像不会升级本机的 `node` 命令。
 
 > [!NOTE]
 > **生成 PDF 还需要 XeLaTeX（MiKTeX 或 TeX Live）和模板所需宏包。** 仅安装 Node.js 可以启动编辑、保存和备份功能；PDF 环境准备见[详细说明](docs/local-editor.md)。无需运行 `npm install`。
@@ -42,7 +48,7 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
 
 - Windows：双击 `start.cmd`，或在终端运行 `.\start.cmd`。
 - Linux/macOS：运行 `sh ./start.sh`。
-- 直接运行：`node server/index.mjs`；加 `--no-open` 可关闭自动打开浏览器。
+- 手动 Node 直接运行：`node server/index.mjs`；加 `--no-open` 可关闭自动打开浏览器。Windows portable Node 可用 `.runtime\node\node.exe server/index.mjs`，或 `start.cmd --no-open`。
 
 默认访问 [http://127.0.0.1:3000](http://127.0.0.1:3000)。终端保持运行；关闭时按 Ctrl+C。首次空数据目录会建立中英两份虚构示例，示例可直接修改。私有内容不会成为其他用户的默认数据。
 

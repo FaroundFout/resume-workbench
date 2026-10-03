@@ -6,9 +6,17 @@
 
 ## 1. 准备环境
 
-第一版保留源码、模板、字体和配置，没有打包 Node 或完整 LaTeX 发行版。用户需要：
+项目保留可修改的源码、模板、字体和配置，不在 Git 中打包 Node 或完整 LaTeX 发行版。
 
-- Node.js 22 或更新版本。可用 `node --version` 检查；验证使用 Node.js 24。
+**Windows 首次先运行 `setup.cmd`，完成后再运行 `start.cmd`。无需预装系统 Node 或管理员权限，首次下载需要联网。** setup 用系统自带 Windows PowerShell 5.1，下载并验证固定版本 Node.js 24.21.0 的官方 x64/ARM64 ZIP，将 portable runtime 放在项目 `.runtime/node/`。它校验 SHA256、版本与原生架构后才发布；不修改系统 Node、全局 PATH 或注册表。已有健康版本时离线复用；损坏/错误版本时重新 setup，下载或验证失败保留原 runtime。其他 Windows 架构不受支持。双击窗口会等待按键，自动化用 `setup.cmd --no-pause`；失败返回非零状态，请按提示检查网络/目录权限后重试。
+
+setup 只准备 Node，并通过应用现有配置和检测确认 XeLaTeX；不写 `config.local.json`，不安装编译器或宏包。**找到 XeLaTeX 只确认身份，首次 PDF 编译才验证宏包。** 缺失时 Node/编辑器已就绪，可先编辑、保存和备份；PDF 仍需 [MiKTeX 官方下载](https://miktex.org/download) 或 TeX Live。
+
+`.runtime/` 全目录已被 Git 忽略，下载的可执行文件、ZIP 和临时文件不得提交。不要在 runtime 中存放个人数据。Windows 也可改用两个 README 中的官方 Node MSI 手动安装方式；没有项目 runtime 时启动器接受系统 Node 22+。
+
+其他环境要求：
+
+- Linux/macOS 需手动安装 Node.js 22 或更新版本。手动安装可用 `node --version` 检查；Windows portable 版本可用 `.runtime\node\node.exe --version` 检查。
 - 生成 PDF 时需要 MiKTeX 或 TeX Live 中的 XeLaTeX。安装发行版后重新打开终端，再使用已有的 XeLaTeX。仅编辑、保存和备份时可以暂时没有它。
 - 模板需要 geometry、fontspec、xeCJK、titlesec、enumitem、tabularx、graphicx、fontawesome5、hyperref、accsupp 及它们的依赖。编译器可执行不代表宏包齐全。完整发行版可减少缺失；精简安装请根据错误日志手动补齐。
 - 字体使用项目内的 Lato 和思源宋体（Source Han Serif，存放在历史名称 font/Simsun/ 下）。这些字体随源码提供，请保留 font/ 及其许可文件。
@@ -17,12 +25,14 @@
 
 ## 2. 启动与配置
 
-Windows 运行 `start.cmd`，Linux/macOS 运行 `sh ./start.sh`，或在项目根目录运行：
+Windows 准备后运行 `start.cmd`；它优先执行项目 Node，并仅给本进程/子进程临时前置 runtime PATH，和系统旧版 Node 不冲突。Linux/macOS 运行 `sh ./start.sh`，或使用手动安装的 Node 在项目根目录运行：
 
 ```sh
 node server/index.mjs
 node server/index.mjs --no-open
 ```
+
+Windows portable Node 直接入口是 `.runtime\node\node.exe server/index.mjs`。通常使用 `start.cmd --no-open` 即可。
 
 第一条会尝试打开浏览器；第二条只显示网址。默认只监听本机 127.0.0.1:3000，在浏览器打开终端打印的网址。不要把本服务当作对外共享的服务器。终端需保持运行；按 Ctrl+C 停止。启动脚本按自身目录定位项目，直接 Node 入口也按脚本路径定位配置。
 
@@ -102,7 +112,7 @@ node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 
 ## 7. 常见故障
 
-- **Node 不存在或过旧**：安装 Node.js 22+，重新打开终端；脚本提示缺失时不会启动服务。
+- **Node 不存在或过旧**：Windows 运行 `setup.cmd` 准备或修复 `.runtime/node/`；手动安装方式和 Linux/macOS 请安装 Node.js 22+ 并重新打开终端。启动器提示缺失/旧版时返回非零状态，不会启动服务。setup 下载失败时检查联网和目录可写后重试；哈希不匹配时不要绕过验证。
 - **未找到 XeLaTeX**：仍可保存和备份；检查是否装有 MiKTeX/TeX Live。已安装时确认实际可执行文件，再设置 xelatexPath 并重启。网页“环境与使用帮助”提供同样入口。
 - **编译器已找到但编译失败**：检查页面显示的构建日志与错误。提示 `File '…sty' not found` 通常表示缺宏包，使用发行版管理工具手动补齐；检测只检查编译器，不探测或自动下载宏包。MiKTeX 实际编译禁止自动安装。请按自己选择的发行版处理，不需要重复安装字体。
 - **字体或素材缺失**：确认移动项目时保留 font/、模板与默认校徽，必要时重新获取完整源码；不要手工编辑资产 ID。
