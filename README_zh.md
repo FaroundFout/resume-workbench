@@ -68,9 +68,15 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
 - “导出备份”保存内容、版式和自定义校徽；换机后“导入备份”创建新记录（最大 10MiB）。PDF 是成品，不能用于恢复编辑数据。
 - 默认个人存储 `.purecv/` 与本地配置 `config.local.json` 已被 Git 忽略。备份含个人信息，应自行妥善保存；自定义到其他数据目录时需自行配置 Git 忽略。
 
-一次性迁入明确准备好的私有结构化 JSON：
+一次性迁入明确准备好的私有结构化 JSON 时，先停止服务。按 `setup.cmd` 主流程准备环境的 Windows 用户，在项目根目录使用项目专用 Node：
 
 ```powershell
+.\.runtime\node\node.exe scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
+```
+
+Linux/macOS，或手动安装系统 Node 22+ 的用户，可使用：
+
+```sh
 node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 ```
 

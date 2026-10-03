@@ -13,6 +13,16 @@ const powershell = join(process.env.SystemRoot || 'C:/Windows', 'System32/Window
 const systemPath = join(process.env.SystemRoot || 'C:/Windows', 'System32');
 const quote = value => "'" + value.replaceAll("'", "''") + "'";
 const windows = { skip: process.platform !== 'win32' };
+const fixtureArchitecture = process.arch;
+const fixtureProcessor = { x64: 'AMD64', arm64: 'ARM64' }[fixtureArchitecture];
+const runtimeFixtures = { skip: windows.skip || (!fixtureProcessor &&
+  `Portable runtime fixtures need an x64 or arm64 Node runner; ${fixtureArchitecture} cannot satisfy the product's version/architecture check.`) };
+function runtimeArchitectureProfile() {
+  assert.ok(fixtureProcessor, `Unsupported portable runtime fixture runner: ${fixtureArchitecture}`);
+  // These archives contain the runner, which can differ from the native OS ISA.
+  // Set only the test subprocess profile; native mapping has its own unmodified test.
+  return `$env:PROCESSOR_ARCHITEW6432 = '${fixtureProcessor}'\r\n$env:PROCESSOR_ARCHITECTURE = '${fixtureProcessor}'\r\n`;
+}
 async function ps(root, code) {
   const file = join(root, `test-${crypto.randomUUID()}.ps1`);
   // Native Windows PowerShell needs a BOM for non-ASCII source paths.
@@ -26,12 +36,21 @@ async function fixture(t) {
   try { await cp(join(project, 'setup.cmd'), join(root, 'setup.cmd')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   return root;
 }
+async function runtimeFixture(t) {
+  const root = await fixture(t);
+  const entry = join(root, 'scripts/setup-windows.ps1');
+  // Apply the fixture profile inside PS5.1, after Windows has created the process.
+  // Only this disposable copied entry changes; the production script stays intact.
+  await writeFile(entry, '\ufeff' + runtimeArchitectureProfile() + await readFile(entry, 'utf8'));
+  return root;
+}
+async function runtimePs(root, code) { return ps(root, runtimeArchitectureProfile() + code); }
 async function localNode(root) {
   await mkdir(join(root, '.runtime/node'), { recursive: true });
   await cp(process.execPath, join(root, '.runtime/node/node.exe'));
 }
 async function manifest(root, sha256 = '0'.repeat(64), version = process.versions.node) {
-  await writeFile(join(root, 'scripts/node-runtime.json'), JSON.stringify({ version, sha256: { x64: sha256, arm64: sha256 } }));
+  await writeFile(join(root, 'scripts/node-runtime.json'), JSON.stringify({ version, sha256: { [fixtureArchitecture]: sha256 } }));
 }
 async function cmd(root, name, args = '', path = systemPath, cwd = root, env = {}) {
   return exec(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `""${join(root, name)}" ${args}"`],
@@ -96,8 +115,8 @@ test('PowerShell 5.1 maps native architecture and rejects unsupported machines',
   assert.deepEqual(result.stdout.trim().split(/\r?\n/), ['x64', 'arm64', 'x64', 'unsupported rejected']);
 });
 
-test('setup.cmd works offline without system Node, reuses healthy runtime and checks existing config', windows, async t => {
-  const root = await fixture(t); await localNode(root); await manifest(root);
+test('setup.cmd works offline without system Node, reuses healthy runtime and checks existing config', runtimeFixtures, async t => {
+  const root = await runtimeFixture(t); await localNode(root); await manifest(root);
   await writeFile(join(root, 'config.local.json'), JSON.stringify({ xelatexPath: 'missing-xelatex.exe' }));
   const before = await readFile(join(root, '.runtime/node/node.exe'));
   const result = await cmd(root, 'setup.cmd', '--no-pause');
@@ -109,41 +128,41 @@ test('setup.cmd works offline without system Node, reuses healthy runtime and ch
   await assert.rejects(cmd(root, 'setup.cmd', '--no-pause'), error => error.code !== 0 && /CONFIG_INVALID|配置/.test(error.stdout + error.stderr));
 });
 
-test('download, checksum, extraction and version failures preserve existing runtime in PowerShell 5.1', windows, async t => {
+test('download, checksum, extraction and version failures preserve existing runtime in PowerShell 5.1', runtimeFixtures, async t => {
   const fixtureVersion = `${Number(process.versions.node.split('.')[0]) + 1}.0.0`;
-  const root = await fixture(t); await localNode(root); await manifest(root, '0'.repeat(64), fixtureVersion);
+  const root = await runtimeFixture(t); await localNode(root); await manifest(root, '0'.repeat(64), fixtureVersion);
   const nodePath = join(root, '.runtime/node/node.exe'); const before = await readFile(nodePath);
   // The only replaced boundary downloads bytes. Hashing, extraction, validation and publication stay real.
   for (const failure of ['download', 'checksum', 'extraction', 'version']) {
     const archive = join(root, 'fixture.zip');
     if (failure === 'version') {
-      const payload = join(root, `node-v${fixtureVersion}-win-${process.arch}`); await mkdir(payload, { recursive: true });
+      const payload = join(root, `node-v${fixtureVersion}-win-${fixtureArchitecture}`); await mkdir(payload, { recursive: true });
       await cp(process.execPath, join(payload, 'node.exe'));
-      await ps(root, `Compress-Archive -LiteralPath ${quote(payload)} -DestinationPath ${quote(archive)} -Force`);
+      await runtimePs(root, `Compress-Archive -LiteralPath ${quote(payload)} -DestinationPath ${quote(archive)} -Force`);
     } else await writeFile(archive, 'invalid ZIP');
-    const result = await ps(root, loadModule(root) + `
+    const result = await runtimePs(root, loadModule(root) + `
       $root = ${quote(root)}; $fixtureArchive = ${quote(archive)}
-      ${['extraction', 'version'].includes(failure) ? `$m = Get-Content -LiteralPath (Join-Path $root 'scripts/node-runtime.json') -Raw | ConvertFrom-Json; $m.sha256.x64 = (Get-FileHash -LiteralPath $fixtureArchive -Algorithm SHA256).Hash; $m | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'scripts/node-runtime.json')` : ''}
+      ${['extraction', 'version'].includes(failure) ? `$m = Get-Content -LiteralPath (Join-Path $root 'scripts/node-runtime.json') -Raw | ConvertFrom-Json; $m.sha256.${fixtureArchitecture} = (Get-FileHash -LiteralPath $fixtureArchive -Algorithm SHA256).Hash; $m | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'scripts/node-runtime.json')` : ''}
       function Download-NodeArchive { param($Uri, $Destination) ${failure === 'download' ? "throw 'fixture download failure'" : 'Copy-Item -LiteralPath $fixtureArchive -Destination $Destination'} }
       try { Invoke-NodeSetup -ProjectRoot $root; throw 'unexpected success' } catch { if ($_.Exception.Message -eq 'unexpected success') { throw }; Write-Output $_.Exception.Message }
     `);
     assert.match(result.stdout, { download: /download failure/, checksum: /SHA256/, extraction: /archive|ZIP|zip|目录|文件/, version: /version|architecture/i }[failure]);
     assert.deepEqual(await readFile(nodePath), before, failure + ' must preserve old runtime');
-    const leftovers = await ps(root, `@(Get-ChildItem -LiteralPath ${quote(join(root, '.runtime'))} -Directory | Where-Object Name -Like 'setup-*').Count`);
+    const leftovers = await runtimePs(root, `@(Get-ChildItem -LiteralPath ${quote(join(root, '.runtime'))} -Directory | Where-Object Name -Like 'setup-*').Count`);
     assert.equal(leftovers.stdout.trim(), '0');
   }
 });
 
-test('repair validates a fixture archive then concurrent setups publish exactly one healthy runtime', windows, async t => {
-  const root = await fixture(t); await manifest(root);
-  const payload = join(root, `node-v${process.versions.node}-win-${process.arch}`); await mkdir(payload);
+test('repair validates a fixture archive then concurrent setups publish exactly one healthy runtime', runtimeFixtures, async t => {
+  const root = await runtimeFixture(t); await manifest(root);
+  const payload = join(root, `node-v${process.versions.node}-win-${fixtureArchitecture}`); await mkdir(payload);
   await cp(process.execPath, join(payload, 'node.exe'));
   const archive = join(root, 'fixture.zip');
-  await ps(root, `Compress-Archive -LiteralPath ${quote(payload)} -DestinationPath ${quote(archive)} -Force`);
+  await runtimePs(root, `Compress-Archive -LiteralPath ${quote(payload)} -DestinationPath ${quote(archive)} -Force`);
   // Initialize the fixture before racing production setup, whose manifest is read-only.
-  await ps(root, loadModule(root) + `
+  await runtimePs(root, loadModule(root) + `
     $m = Get-Content -LiteralPath ${quote(join(root, 'scripts/node-runtime.json'))} -Raw | ConvertFrom-Json
-    $m.sha256.x64 = (Get-FileHash -LiteralPath ${quote(archive)} -Algorithm SHA256).Hash
+    $m.sha256.${fixtureArchitecture} = (Get-FileHash -LiteralPath ${quote(archive)} -Algorithm SHA256).Hash
     $m | ConvertTo-Json | Set-Content -LiteralPath ${quote(join(root, 'scripts/node-runtime.json'))}
   `);
   await mkdir(join(root, '.runtime/node'), { recursive: true });
@@ -151,13 +170,13 @@ test('repair validates a fixture archive then concurrent setups publish exactly 
   const code = loadModule(root) + `
     $root = ${quote(root)}; $fixtureArchive = ${quote(archive)}
     function Download-NodeArchive { param($Uri, $Destination)
-      if ($Uri -ne 'https://nodejs.org/dist/v${process.versions.node}/node-v${process.versions.node}-win-x64.zip') { throw 'wrong official URL' }
+      if ($Uri -ne 'https://nodejs.org/dist/v${process.versions.node}/node-v${process.versions.node}-win-${fixtureArchitecture}.zip') { throw 'wrong official URL' }
       Start-Sleep -Milliseconds 300
       Copy-Item -LiteralPath $fixtureArchive -Destination $Destination
     }
     Invoke-NodeSetup -ProjectRoot $root
   `;
-  const results = await Promise.all([ps(root, code), ps(root, code)]);
+  const results = await Promise.all([runtimePs(root, code), runtimePs(root, code)]);
   assert.equal(results.filter(result => /Prepared portable Node/.test(result.stdout)).length, 1);
   assert.equal(results.filter(result => /Reusing/.test(result.stdout)).length, 1);
   const probe = await exec(join(root, '.runtime/node/node.exe'), ['-v']); assert.equal(probe.stdout.trim(), process.version);

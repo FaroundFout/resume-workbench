@@ -68,7 +68,13 @@ Windows is the current validation priority. Linux/macOS source launchers are pro
 - “导出备份” (Export backup) includes content, layout, and custom logo. “导入备份” (Import backup) creates a new record on another machine (up to 10MiB). A PDF cannot restore editable data.
 - Default personal storage `.purecv/` and `config.local.json` are Git ignored. Protect backups as personal files. If you choose another data directory, configure your own ignore rules.
 
-For a one-time import of explicitly prepared private structured JSON:
+For a one-time import of explicitly prepared private structured JSON, stop the service first. Windows users following `setup.cmd` should use the project-local runtime from the project root:
+
+```powershell
+.\.runtime\node\node.exe scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
+```
+
+Linux/macOS, or users who manually installed system Node 22+, can use:
 
 ```sh
 node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"

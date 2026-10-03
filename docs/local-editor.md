@@ -100,7 +100,13 @@ PDF 需要手动点击“更新预览”。它会等待最新数据保存，捕�
 
 联系方式列表及每个模块的 items 列表内部，条目 id 必须唯一；重复 ID 会在保存或导入发布前被拒绝。不同模块之间可使用相同 ID；不会自动删除或合并重复内容。
 
-在服务停止时执行：
+在服务停止时执行。按 `setup.cmd` 准备环境的 Windows 用户，在项目根目录使用项目专用 Node，无需依赖系统 Node：
+
+```powershell
+.\.runtime\node\node.exe scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
+```
+
+Linux/macOS，或已手动安装系统 Node 22+ 的用户，可使用：
 
 ```sh
 node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
