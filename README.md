@@ -2,11 +2,41 @@
 
 [中文](README_zh.md) · [Detailed local editor guide](docs/local-editor.md)
 
+> [!IMPORTANT]
+> **Install Node.js 22 or newer on your computer before starting the web editor. Node.js 24 LTS is recommended.**
+> **Node.js 20 and older are unsupported and rejected by the launchers. Downloading or cloning this project does not install Node.js.**
+> On Windows, choose the **Windows Installer (`.msi`)**. This project does not require Docker; **do not copy the Node website's `docker pull` / `docker run` commands to install Node on your computer**.
+
 Resume Workbench combines the original XeLaTeX resume templates with a local browser editor. Edit Chinese or English resumes by section, adjust layout, replace the logo, and generate a PDF preview and download. Each language has independent content; choosing a template does not translate your text.
 
 Version one ships editable source, **not a packaged runtime**. It requires **Node.js 22+**; PDF generation additionally requires **XeLaTeX and the template packages** from MiKTeX or TeX Live. Lato and **Source Han Serif** fonts are included and do not need separate font installation. The local server uses Node's standard library: no npm install, frontend build, Docker, or paid server is needed.
 
-## Start locally
+## First-time setup: install Node.js first (required)
+
+### Windows installation and version check
+
+1. Open the [official Node.js download page](https://nodejs.org/en/download), select **Node.js 24 LTS and Windows**, and click **Windows Installer (`.msi`)** in the prebuilt downloads area. Choose **x64** for Intel / AMD 64-bit PCs or **ARM64** for Windows ARM PCs. If you already have Node.js 20, upgrade it first.
+2. Run the `.msi` installer with its default options, keeping **Add to PATH** enabled. **Close your existing PowerShell / CMD window and open a new terminal after installation** so it can find the new version.
+3. Check the version in the new terminal:
+
+   ```powershell
+   node -v
+   ```
+
+   **Expect `v24.x.x` (or another version numbered 22 or higher).** If it still shows `v20.x.x`, the terminal is using the older installation. Run `where.exe node` to inspect the executable paths and check that installation finished and PATH does not prioritize an older Node. If `node` is not found, check that installation succeeded with Add to PATH enabled.
+4. Enter the project root containing `server/` and `start.cmd`, then run:
+
+   ```powershell
+   .\start.cmd
+   ```
+
+> [!WARNING]
+> If startup reports **`Node.js 22 or newer is required.`**, complete the version check and local installation above. Node inside a Docker container is separate from Node on Windows; pulling a Node Docker image does not upgrade your computer's `node` command.
+
+> [!NOTE]
+> **PDF generation also requires XeLaTeX (MiKTeX or TeX Live) and the template packages.** Node.js alone enables editing, saving, and backups. See the [detailed guide](docs/local-editor.md) for PDF environment setup. No `npm install` is needed.
+
+## Start locally (after completing setup)
 
 Use the project root containing `server/` and the launchers:
 

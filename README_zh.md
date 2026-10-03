@@ -2,11 +2,41 @@
 
 [English](README.md) · [本地编辑器详细说明](docs/local-editor.md)
 
+> [!IMPORTANT]
+> **启动网页编辑器前，必须先在本机安装 Node.js 22 或以上版本，推荐 Node.js 24 LTS。**
+> **Node.js 20 及更低版本不受支持，启动脚本会拒绝运行；下载或克隆本项目不会自动安装 Node.js。**
+> Windows 用户请选择 **Windows Installer（`.msi`）** 安装包。本项目无需 Docker，**不要复制 Node 官网的 `docker pull` / `docker run` 命令来安装本机 Node**。
+
 Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并提供本机网页编辑器。你可以分模块编辑中文或英文简历、调整版式、替换校徽，再通过 XeLaTeX 更新 PDF 预览与下载。中文与英文独立保存，切换模板不会自动翻译文字。
 
 第一版是可修改的源码，尚未打包运行环境。需要 **Node.js 22+**；生成 PDF 另需 **XeLaTeX 和模板所需宏包**（MiKTeX 或 TeX Live）。项目内含 Lato 和**思源宋体（Source Han Serif）**字体，不需要额外安装这些字体。网页服务只用 Node 标准库，不需要 npm 安装、前端构建、Docker 或付费服务器。
 
-## 本机启动
+## 首次使用：先安装 Node.js（必读）
+
+### Windows 安装与检查
+
+1. 打开 [Node.js 官方下载页](https://nodejs.org/en/download)，选择 **Node.js 24 LTS 和 Windows**，在页面的预编译下载区域点击 **Windows Installer（`.msi`）**。普通 Intel / AMD 64 位电脑选 **x64**；Windows ARM 电脑选 **ARM64**。已经安装 Node.js 20 的用户也需要升级。
+2. 双击 `.msi` 安装包，按默认选项完成安装，保留 **Add to PATH** 选项。**安装后关闭原来的 PowerShell / CMD，再打开新终端**，让新版本生效。
+3. 在新终端中检查版本：
+
+   ```powershell
+   node -v
+   ```
+
+   **应显示 `v24.x.x`（或其他 22 及以上版本）。** 如果仍显示 `v20.x.x`，说明终端还在使用旧版；运行 `where.exe node` 查看实际执行路径，确认安装完成且 PATH 中没有优先使用旧版 Node。若提示找不到 `node`，请检查是否安装成功并启用了 Add to PATH。
+4. 进入包含 `server/` 和 `start.cmd` 的项目根目录，再运行：
+
+   ```powershell
+   .\start.cmd
+   ```
+
+> [!WARNING]
+> 如果启动时出现 **`Node.js 22 or newer is required.`**，请先完成上面的版本检查和本机安装。Docker 容器里的 Node 与 Windows 本机 Node 是两套环境，拉取 Node Docker 镜像不会升级本机的 `node` 命令。
+
+> [!NOTE]
+> **生成 PDF 还需要 XeLaTeX（MiKTeX 或 TeX Live）和模板所需宏包。** 仅安装 Node.js 可以启动编辑、保存和备份功能；PDF 环境准备见[详细说明](docs/local-editor.md)。无需运行 `npm install`。
+
+## 本机启动（完成上述准备后）
 
 进入包含 `server/` 和 `start.cmd` 的项目根目录：
 
