@@ -29,6 +29,20 @@ async function withBuild(callback) {
 }
 const snapshot = data => ({ resumeId: 'resume-example', revision: 3, data, logoImage: null });
 
+test('default logo renders from public template assets without any personal resume directories', async () => withBuild(async options => {
+  const publicRoot = join(options.dataDir, 'public source');
+  for (const file of [...fonts.map(font => `font/${font}`), 'templates/purecv-en/main.tex', 'templates/purecv-zh/main.tex',
+    'templates/shared/macros.tex', 'templates/default-logo.png']) {
+    await mkdir(join(publicRoot, file, '..'), { recursive: true });
+    await writeFile(join(publicRoot, file), await readFile(join(projectRoot, file)));
+  }
+  for (const language of ['en', 'zh-CN']) {
+    const buildDir = join(options.dataDir, language);
+    await resources.prepareBuild({ ...options, projectRoot: publicRoot, buildDir, snapshot: snapshot(createEmptyData(language)) });
+    assert.equal(hash(await readFile(join(buildDir, 'resources/logo.png'))), hash(await readFile(join(publicRoot, 'templates/default-logo.png'))));
+  }
+}));
+
 test('preparation uses actual templates, fixed relative names, and only required fonts without altering originals', async () => {
   await withBuild(async options => {
     const before = await protectedHashes();
@@ -42,7 +56,7 @@ test('preparation uses actual templates, fixed relative names, and only required
     assert.ok(!tex.includes(options.dataDir));
     assert.ok(!tex.includes(options.projectRoot));
     assert.ok(!/\{\{[A-Z_]+\}\}/.test(tex + await readFile(join(options.buildDir, 'macros.tex'), 'utf8')));
-    assert.equal(hash(await readFile(join(options.buildDir, 'resources/logo.png'))), hash(await readFile(join(projectRoot, 'resume/uestc.png'))));
+    assert.equal(hash(await readFile(join(options.buildDir, 'resources/logo.png'))), hash(await readFile(join(projectRoot, 'templates/default-logo.png'))));
     for (const font of fonts) {
       const source = hash(await readFile(join(projectRoot, 'font', font)));
       assert.equal(hash(await readFile(join(options.dataDir, 'resources/font', font))), source);
@@ -89,7 +103,7 @@ test('font cache digest repairs corruption and follows a changed source font', a
     const cachedFont = join(options.dataDir, 'resources/font/Lato/Lato-Regular.ttf');
     await writeFile(cachedFont, 'corrupted cache');
     const localProject = join(options.dataDir, 'source copy');
-    for (const file of [...fonts.map(font => `font/${font}`), 'templates/purecv-en/main.tex', 'templates/shared/macros.tex', 'resume/uestc.png']) {
+    for (const file of [...fonts.map(font => `font/${font}`), 'templates/purecv-en/main.tex', 'templates/shared/macros.tex', 'templates/default-logo.png']) {
       const destination = join(localProject, file);
       await mkdir(join(destination, '..'), { recursive: true });
       await writeFile(destination, await readFile(join(projectRoot, file)));

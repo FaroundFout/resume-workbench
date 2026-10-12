@@ -15,9 +15,11 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
 
 1. 克隆或下载完整项目，放在可写目录。双击 **`setup.cmd`**，或在 PowerShell 运行 `.\setup.cmd`。脚本用 Windows PowerShell 5.1 下载原生 x64 或 ARM64 Windows 的官方 portable Node，校验哈希、版本与架构；其他架构会明确拒绝。
 2. 阅读准备结果，再双击 **`start.cmd`**，或运行 `.\start.cmd`。setup 不会自动启动服务。自动化可用 `setup.cmd --no-pause`；正常双击窗口会等待按键，便于看清结果。
-3. setup 检查项目资源和 XeLaTeX，为已有 MiKTeX 补齐清单内缺包，再编译真实中文和英文样例。**两种语言都通过才报告完整安装成功，否则返回非零。** 尚无编译器时先安装 [MiKTeX](https://miktex.org/download) 或 TeX Live；当前不自动安装发行版，不改写本地配置。可用 `setup.cmd --editor-only` 只准备编辑环境，详见[指南](docs/local-editor.md)。
+3. setup 检查项目资源，复用所选 XeLaTeX，为已有 MiKTeX 补齐清单内缺包。没有编译器时，Windows 11 x64 可通过官方固定 SHA256 引导工具准备项目私有 MiKTeX，存放在 `.runtime/tex/`。**真实中文和英文模板都通过才报告完整安装成功并发布新环境选择，否则返回非零。** 显式编译器路径无效时停止，不默默换环境；其他平台需先人工安装 TeX。可用 `setup.cmd --editor-only` 只准备编辑环境，详见[指南](docs/local-editor.md)。
 
-`doctor.cmd` 只验收双语 PDF，不装宏包；`repair.cmd` 修复已有 MiKTeX 的已知缺包并验收。二者支持 `--no-pause`，完成后重新启动服务。TeX Live 缺包需人工补齐。
+`doctor.cmd` 只验收双语 PDF，不装宏包；`repair.cmd` 补齐 MiKTeX 已知缺包。若新宏包要求的 LaTeX 日期比当前格式新，运行 `repair.cmd --update`，明确同步已安装宏包、重建 XeLaTeX 格式并重新验收。入口都支持 `--no-pause`。修复后在网页点击“重新检测环境”刷新就绪状态。TeX Live 缺包需人工补齐。
+
+私有 TeX 部署与发布校验已提供隔离回归；全新 Windows 11 机器的实际联网安装仍是待执行的发布门槛，见[安装矩阵](docs/verification/installation-matrix.md)。固定引导工具的校验值不等于固定在线宏包仓库的所有版本。
 
 `start.cmd` 优先使用项目 `.runtime/node/node.exe`，即使电脑已有旧版 Node 也不会冲突。启动时的 PATH 调整仅作用于当前进程及其子进程。`.runtime/` 已被 Git 忽略，下载运行环境、ZIP 与临时文件不能提交；runtime 损坏或版本错误时重新运行 setup 修复。下载或验证失败会保留已有 runtime。无需系统 Node、管理员权限或全局安装修改。
 
@@ -86,7 +88,7 @@ node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 
 ## 原 LaTeX 手工使用方式
 
-网页模板位于 `templates/`；原始 `resume/` 与 `resume_zh/` 的源码仍可手工修改，公开内容模块均为虚构示例。手工方式只需要 XeLaTeX（不需要 Node）；使用 Makefile 另需 make，文件监控另需 Bash、fswatch、realpath 与 find。
+网页模板位于 `templates/`；原始 `resume/` 与 `resume_zh/` 的源码仍可手工修改。手工方式只需要 XeLaTeX（不需要 Node）；使用 Makefile 另需 make，文件监控另需 Bash、fswatch、realpath 与 find。
 
 从项目根目录进入对应子目录，不能直接在根目录运行 make：
 
@@ -110,7 +112,10 @@ xelatex resume_zh.tex
 
 英文入口为 `resume/resume.tex`，模块在 `resume/src/`；中文入口为 `resume_zh/resume_zh.tex`，模块在 `resume_zh/src/`。修改姓名、联系方式、教育、项目和技能等对应模块。标题样式由实际入口的 `input`/`insertHeading` 设置控制，切换时检查正在编译的入口；网页数据不会反向修改这些原文件。
 
-如需监控，在相应子目录执行 `bash ./watch_tex.sh`，脚本使用当前目录，需要先安装其依赖。
+如需监控，在相应子目录执行 `bash ./watch_tex.sh`，脚本使用当前目录，需要先安装其依赖。原版标题预览：
+
+<img src="./preview.png" alt="原版带图片标题预览"/>
+<img src="./preview_basic.png" alt="原版基础标题预览"/>
 
 ## 许可与来源
 

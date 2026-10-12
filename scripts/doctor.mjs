@@ -9,8 +9,11 @@ export async function runDoctor({ projectRoot, args = [], signal, writeLine = co
   let mode = '--prepare';
   let fullCheckStarted = false;
   try {
-    if (args.length > 1 || args.some(arg => !modes.has(arg))) throw Error('参数或模式无效：使用 --check、--verify、--prepare 或 --editor-only 中的一种。');
-    mode = args[0] ?? mode;
+    const selectedModes = args.filter(arg => modes.has(arg));
+    const update = args.includes('--update');
+    if (selectedModes.length > 1 || new Set(args).size !== args.length || args.some(arg => !modes.has(arg) && arg !== '--update')
+      || (update && selectedModes[0] !== '--prepare')) throw Error('参数或模式无效：使用 --check、--verify、--prepare 或 --editor-only 中的一种；--update 只能与 --prepare 一起使用。');
+    mode = selectedModes[0] ?? mode;
     signal?.throwIfAborted();
     const config = await loadConfig(projectRoot);
     if (Number(process.versions.node.split('.')[0]) < 22) throw Error('Node.js 22 or newer is required.');
@@ -24,8 +27,9 @@ export async function runDoctor({ projectRoot, args = [], signal, writeLine = co
     let report;
     fullCheckStarted = mode !== '--check';
     if (mode === '--prepare') {
+      if (update) writeLine('将同步所选 MiKTeX 的已安装宏包并重建 XeLaTeX 格式，随后重新验收中英文 PDF。');
       const prepareEnvironment = prepare ?? (await import('../server/environment/prepare.mjs')).preparePdfEnvironment;
-      report = await prepareEnvironment(config, { signal, log });
+      report = await prepareEnvironment(config, { signal, log, update });
     } else {
       const inspectEnvironment = inspect ?? (await import('../server/environment/check.mjs')).inspectEnvironment;
       report = await inspectEnvironment(config, { signal });

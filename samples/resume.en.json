@@ -1,0 +1,41 @@
+{
+  "language": "en",
+  "profile": {
+    "name": "Example Student",
+    "alternateName": "示例同学",
+    "title": "Software Development Intern (Fictional Example)",
+    "contacts": [
+      { "id": "contact-email", "type": "email", "label": "Email", "value": "student@example.com" },
+      { "id": "contact-site", "type": "url", "label": "Website", "value": "https://example.com" }
+    ]
+  },
+  "sections": {
+    "education": {
+      "enabled": true,
+      "items": [{ "id": "education-1", "school": "Example University (Fictional)", "degree": "Bachelor's Degree", "major": "Software Engineering", "period": "Sep 2021–Jun 2025", "bullets": [[{ "text": "Relevant coursework: data structures, databases, and software engineering.", "bold": false, "url": null }]] }]
+    },
+    "experience": {
+      "enabled": true,
+      "items": [{ "id": "experience-1", "organization": "Example Software Studio (Fictional)", "role": "Development Intern", "location": "Example City", "period": "Jul 2024–Sep 2024", "bullets": [[{ "text": "Contributed API endpoints and code reviews to an internal task management tool.", "bold": false, "url": null }]] }]
+    },
+    "projects": {
+      "enabled": true,
+      "items": [{ "id": "project-1", "name": "Reading Journal (Fictional)", "period": "Mar 2024–Jun 2024", "role": "Personal Practice", "url": "https://example.com/projects/reading", "techStack": "Java, SQL, JavaScript", "summary": [{ "text": "Tracks books, reading progress, and notes.", "bold": false, "url": null }], "bullets": [[{ "text": "Implemented search and categories, with tests for key endpoints.", "bold": false, "url": null }]] }]
+    },
+    "skills": {
+      "enabled": true,
+      "items": [{ "id": "skill-1", "category": "Development Fundamentals", "content": [{ "text": "Java, SQL, Git; comfortable reading English technical documentation.", "bold": false, "url": null }] }]
+    },
+    "awards": {
+      "enabled": true,
+      "items": [{ "id": "award-1", "name": "Course Project Showcase Award (Fictional)", "period": "Jun 2024", "issuer": "Example University Software Engineering Course", "description": [{ "text": "Sample content demonstrating the awards section.", "bold": false, "url": null }] }]
+    },
+    "social": {
+      "enabled": true,
+      "items": [{ "id": "social-1", "organization": "Campus Programming Club (Fictional)", "role": "Volunteer", "period": "Sep 2022–Jun 2023", "bullets": [[{ "text": "Helped organize introductory programming exercises.", "bold": false, "url": null }]] }]
+    }
+  },
+  "sectionOrder": ["education", "experience", "projects", "skills", "awards", "social"],
+  "layout": { "paper": "auto", "fontSizePt": 10, "density": "compact", "marginMm": 10 },
+  "logo": { "mode": "default", "assetId": null, "widthCm": 2.4 }
+}

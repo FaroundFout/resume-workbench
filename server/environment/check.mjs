@@ -11,7 +11,7 @@ const timeoutCheck = () => check('environment', 'failed', 'ENVIRONMENT_TIMEOUT',
 const samePath = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 
 /** Read-only resource and direct-dependency inspection; only real compilation can grant ready. */
-export async function inspectEnvironment(config, { signal, toolchain: selected, run = runProcess, timeoutMs = 15000, ...options } = {}) {
+export async function inspectEnvironment(config, { signal, toolchain: selected, run = runProcess, timeoutMs = 15000, onFile, ...options } = {}) {
   signal?.throwIfAborted();
   const deadline = performance.now() + Math.min(15000, timeoutMs);
   const controller = new AbortController();
@@ -21,10 +21,12 @@ export async function inspectEnvironment(config, { signal, toolchain: selected, 
     fingerprint: null, verifiedAt: null, task: null };
   const hash = createHash('sha256').update(JSON.stringify({ requiredProjectFiles, requiredTexFiles, packageIdsByFlavour }));
   const addFile = async (id, path) => {
-    if (!(await stat(path)).isFile()) throw Object.assign(new Error('not a regular file'), { code: 'NOT_FILE' });
+    const info = await stat(path);
+    if (!info.isFile()) throw Object.assign(new Error('not a regular file'), { code: 'NOT_FILE' });
     const bytes = await readFile(path, { signal: boundedSignal });
     if (!bytes.length) throw Object.assign(new Error('empty resource'), { code: 'EMPTY_FILE' });
     hash.update(JSON.stringify(id)).update(createHash('sha256').update(bytes).digest());
+    onFile?.({ id, path, stat: info });
   };
   try {
     for (const file of requiredProjectFiles) {

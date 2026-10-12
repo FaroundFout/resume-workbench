@@ -20,9 +20,9 @@ async function availablePort() { const s = http.createServer(); await new Promis
 async function launchRoot(t, deferCleanup = false) {
   const temp = await mkdtemp(join(tmpdir(), 'PureCV 中文 空格-')); if (!deferCleanup) t.after(() => rm(temp, { recursive: true, force: true }));
   const root = join(temp, '项目'); await mkdir(root);
-  for (const path of ['server', 'web', 'examples', 'start.cmd', 'start.sh']) await cp(join(project, path), join(root, path), { recursive: true });
+  for (const path of ['server', 'web', 'samples', 'start.cmd', 'start.sh']) await cp(join(project, path), join(root, path), { recursive: true });
   // These startup tests exercise missing compiler handling, not resource validation.
-  for (const path of requiredProjectFiles) { const target = join(root, path); await mkdir(dirname(target), { recursive: true }); await writeFile(target, 'startup resource fixture'); }
+  for (const path of requiredProjectFiles) { const target = join(root, path); await mkdir(dirname(target), { recursive: true }); if (!path.startsWith('samples/')) await writeFile(target, 'startup resource fixture'); }
   const port = await availablePort(); await writeFile(join(root, 'config.local.json'), JSON.stringify({ port, dataDir: '数据 目录', xelatexPath: 'missing-xelatex.exe' }));
   return { temp, root, port };
 }
@@ -118,7 +118,7 @@ test('occupied ownership port fails closed with accurate advice and no store mut
 });
 
 test('early seeding failure releases ownership and old release cannot close new owner', async t => {
-  const f = await launchRoot(t); const example = join(f.root, 'examples/resume.zh.json'); const bytes = await readFile(example);
+  const f = await launchRoot(t); const example = join(f.root, 'samples/resume.zh.json'); const bytes = await readFile(example);
   await rm(example);
   await assert.rejects(startServer(f.root, { openBrowser: false }), { code: 'ENOENT' });
   await writeFile(example, bytes);

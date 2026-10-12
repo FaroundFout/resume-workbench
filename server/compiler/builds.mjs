@@ -4,11 +4,29 @@ import { join, resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { AppError } from '../errors.mjs';
 import { prepareBuild as defaultPrepareBuild } from '../latex/resources.mjs';
-import { detectCompiler } from './environment.mjs';
+import { resolveToolchain } from '../environment/toolchain.mjs';
 import { runXeLaTeX } from './process.mjs';
 import { acquireEnvironmentLease } from '../environment/lease.mjs';
 
 const error = (code, message, status = 500) => new AppError(code, message, status);
+async function detectCompiler(config, options) {
+  const toolchain = await resolveToolchain(config, options);
+  return toolchain ? { available: true, ...toolchain, toolchain }
+    : { available: false, message: '未找到可用的 XeLaTeX，请检查所选环境后重新检测。' };
+}
+function environmentFailure(log, cause) {
+  const missing = String(log).match(/(?:LaTeX Error:\s*)?File\s+[`'"]([^`'"\s]+\.(?:sty|cls))[`'"]\s+not found/iu);
+  if (missing) return { code: 'TEX_PACKAGE_MISSING', message: `缺少 TeX 依赖 ${missing[1]}，请运行 repair.cmd 后重新检测。` };
+  if (/fontspec.*(?:error|not found|cannot)|font.*(?:cannot be found|could not be loaded|not loadable)|Missing character:/iu.test(log)) {
+    return { code: 'FONT_VERIFICATION_FAILED', message: '字体加载或字符输出失败，请恢复字体后重新检测环境。' };
+  }
+  if (['ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(cause?.code) && /(?:[\\/]font[\\/]|[\\/]templates[\\/]|[\\/]resume(?:_zh)?[\\/]uestc\.png)/iu.test(cause.path ?? '')) {
+    return { code: 'PROJECT_RESOURCE_MISSING', message: '项目字体、模板或默认图片缺失，请恢复项目文件后重新检测。' };
+  }
+  if (cause?.code === 'COMPILER_UNAVAILABLE') return { code: cause.code, message: '所选编译器不可用，请重新检测环境。' };
+  if (/无法启动编译进程|无法识别 XeLaTeX 发行版/iu.test(log)) return { code: 'COMPILER_UNAVAILABLE', message: '所选编译器无法启动，请重新检测环境。' };
+  return null;
+}
 async function validatePdf(path) {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.size < 5) throw error('PDF_INVALID', '编译未生成有效 PDF');
@@ -21,7 +39,7 @@ async function validatePdf(path) {
 }
 /** One service owns one manager; detect is an optional internal collaborator. */
 export function createBuildManager({ config, store, prepareBuild = defaultPrepareBuild, run = runXeLaTeX, detect = detectCompiler,
-  acquireLease = acquireEnvironmentLease }) {
+  acquireLease = acquireEnvironmentLease, onEnvironmentFailure = () => {} }) {
   let active = null;
   let closed = false;
   let lastCreatedAt = 0;
@@ -58,6 +76,7 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
     let log = '';
     let finalPassLog = '';
     let pages = null;
+    let environmentCause = null;
     try {
       const buildDir = store.buildDirectory(record.id);
       checkpoint(slot);
@@ -81,6 +100,7 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
         if (matches.length) pages = Number(matches.at(-1)[1]) || null;
       }
     } catch (cause) {
+      environmentCause = cause;
       status = slot.controller.signal.aborted ? stopped(slot) : remaining(slot) <= 0 ? 'timed_out' : 'failed';
       failure = status === 'timed_out' || status === 'interrupted' ? null
         : { code: cause instanceof AppError ? cause.code : 'COMPILE_FAILED', message: cause instanceof AppError ? cause.message : '编译失败，请查看任务日志' };
@@ -92,7 +112,17 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
       message: status === 'timed_out' ? '编译超过总时间限制' : status === 'interrupted' ? '服务中断了编译任务' : '编译失败，请查看任务日志' };
     // A clean final pass resolves first-pass rerun/PageLabels warnings; the
     // complete two-pass history remains in build.log for troubleshooting.
-    const warnings = [...new Set((status === 'succeeded' ? finalPassLog : log).split(/\r?\n/).filter(line => /Warning:|Overfull \\hbox|Underfull \\hbox/.test(line)))].slice(0, 100);
+    const diagnosticLog = status === 'succeeded' ? finalPassLog : log;
+    const warnings = [...new Set(diagnosticLog.split(/\r?\n/).filter(line => /Warning:|Overfull \\hbox|Underfull \\hbox/.test(line)))].slice(0, 100);
+    const format = diagnosticLog.match(/LaTeX Warning:\s*You have requested release\s+[`'"](?<required>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+of LaTeX,\s*but only release\s+[`'"](?<available>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+is available/iu);
+    if (format) warnings.unshift(`日志另提示 LaTeX 要求 ${format.groups.required}，当前格式为 ${format.groups.available}；MiKTeX 可运行 repair.cmd --update 后重新检测，TeX Live 请使用对应管理工具更新。具体编译错误仍以失败日志为准。`);
+    if (status === 'failed') {
+      const diagnosis = environmentFailure(log, environmentCause);
+      if (diagnosis) {
+        try { await onEnvironmentFailure(diagnosis); }
+        catch { log += '\n环境验收缓存未能更新，请检查项目目录权限并重新检测。\n'; }
+      }
+    }
     await writeFile(buildPath(record.id, 'build.log'), log || failure?.message || '编译完成', 'utf8');
     await store.publishBuild({ ...record, status, finishedAt: new Date().toISOString(), pages: status === 'succeeded' ? pages : null, warnings, error: failure });
     await store.pruneBuilds(record.resumeId);
@@ -100,9 +130,10 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
   async function submit({ resumeId, expectedRevision }) {
     if (closed) throw error('BUILDER_SHUTDOWN', '服务正在关闭，请重新启动后编译', 503);
     if (deleting.has(resumeId)) throw error('RESUME_DELETING', '这份简历正在删除，请稍后重试', 409);
-    if (active) throw error('BUILDER_BUSY', '已有简历正在编译，请稍后重试', 409);
+    if (active) throw error(active.type === 'environment' ? 'ENVIRONMENT_BUSY' : 'BUILDER_BUSY',
+      active.type === 'environment' ? '正在检测 PDF 环境，请稍后编译。' : '已有简历正在编译，请稍后重试', 409);
     let settle;
-    const slot = { resumeId, controller: new AbortController(), deadline: performance.now() + config.compileTimeoutMs,
+    const slot = { type: 'build', resumeId, controller: new AbortController(), deadline: performance.now() + config.compileTimeoutMs,
       completion: new Promise(done => { settle = done; }) };
     slot.timer = setTimeout(() => {
       if (!slot.controller.signal.aborted) {
@@ -139,7 +170,24 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
         return release();
       });
       return record;
-    } catch (cause) { await release(); throw cause; }
+    } catch (cause) {
+      try {
+        const diagnosis = environmentFailure('', cause);
+        if (diagnosis) {
+          try { await onEnvironmentFailure(diagnosis); } catch { /* Preserve the original compiler diagnostic. */ }
+        }
+      }
+      finally { await release(); }
+      throw cause;
+    }
+  }
+  function reserveEnvironmentTask({ controller = new AbortController() } = {}) {
+    if (closed) throw error('BUILDER_SHUTDOWN', '服务正在关闭，请重新启动后检测环境。', 503);
+    if (active) throw error('ENVIRONMENT_BUSY', '已有编译或环境验收正在运行，请稍后重新检测。', 409);
+    let settle;
+    const slot = { type: 'environment', controller, completion: new Promise(resolve => { settle = resolve; }) };
+    active = slot;
+    return { release: async () => { if (active === slot) active = null; settle(); } };
   }
   async function pdfPath(id) {
     const record = await store.readBuild(id);
@@ -199,5 +247,5 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
     try { return await store.remove(resumeId, { expectedRevision }); }
     finally { deleting.delete(resumeId); }
   }
-  return { submit, read, removeResume, latestForResume: id => store.latestSuccessfulBuild(id), pdfPath, logPath, recover, shutdown };
+  return { submit, reserveEnvironmentTask, read, removeResume, latestForResume: id => store.latestSuccessfulBuild(id), pdfPath, logPath, recover, shutdown };
 }

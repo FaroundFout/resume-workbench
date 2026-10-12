@@ -12,7 +12,7 @@ const project = fileURLToPath(new URL('../', import.meta.url));
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'PureCV empty startup-'));
   t.after(() => rm(root, { recursive: true, force: true }));
-  await cp(join(project, 'examples'), join(root, 'examples'), { recursive: true });
+  await cp(join(project, 'samples'), join(root, 'samples'), { recursive: true });
   const probe = http.createServer();
   await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
   const port = probe.address().port;
@@ -58,7 +58,7 @@ test('a legacy nonempty library is recognized before it is intentionally emptied
 
 test('failed initial example loading leaves initialization retryable without partial seeds', async t => {
   const f = await fixture(t);
-  const example = join(f.root, 'examples', 'resume.en.json');
+  const example = join(f.root, 'samples', 'resume.en.json');
   const saved = join(f.root, 'saved example.json');
   await rename(example, saved);
   await assert.rejects(startServer(f.root, { openBrowser: false }), { code: 'ENOENT' });
@@ -70,11 +70,11 @@ test('failed initial example loading leaves initialization retryable without par
 
 test('failed initial seed validation removes only the new examples and permits a complete retry', async t => {
   const f = await fixture(t);
-  const example = join(f.root, 'examples', 'resume.en.json');
+  const example = join(f.root, 'samples', 'resume.en.json');
   await writeFile(example, JSON.stringify({ language: 'en' }));
   await assert.rejects(startServer(f.root, { openBrowser: false }), { code: 'VALIDATION_ERROR' });
   const store = await createStore({ dataDir: f.dataDir });
   assert.deepEqual(await store.list(), []);
-  await cp(join(project, 'examples', 'resume.en.json'), example);
+  await cp(join(project, 'samples', 'resume.en.json'), example);
   assert.equal((await libraryAtStartup(f.root)).length, 2);
 });

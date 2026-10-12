@@ -1,0 +1,187 @@
+name: Windows release candidate
+
+on:
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'web/**'
+      - 'scripts/**'
+      - 'templates/**'
+      - 'font/**'
+      - 'samples/**'
+      - 'tests/release-package.test.mjs'
+      - 'tests/integration/fresh-install.test.mjs'
+      - '.github/workflows/windows-release-check.yml'
+      - '*.cmd'
+      - 'config.example.json'
+      - 'README*.md'
+      - 'docs/local-editor.md'
+  workflow_dispatch:
+    inputs:
+      clean_install:
+        description: 'Run real installation on an ephemeral clean Windows 11 x64 ordinary-user VM'
+        type: boolean
+        default: false
+      vm_snapshot_id:
+        description: 'ID of the reset no-Node/no-TeX VM snapshot (required for clean_install)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Validate packaging and real filesystem safety
+        run: node --test tests/release-package.test.mjs
+      - name: Build and verify the final ZIP
+        shell: pwsh
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'purecv-release.zip'
+          node scripts/package-release.mjs --output $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Release packaging failed' }
+          node scripts/release-verify.mjs --zip $zip
+          if ($LASTEXITCODE -ne 0) { throw 'Final ZIP verification failed' }
+          "RELEASE_ZIP=$zip" >> $env:GITHUB_ENV
+      - name: Preserve candidate and externally checkable SHA256
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate
+          path: |
+            ${{ env.RELEASE_ZIP }}
+            ${{ env.RELEASE_ZIP }}.sha256
+            ${{ env.RELEASE_ZIP }}.manifest.json
+          if-no-files-found: error
+      - name: Preserve developer QA source outside the product ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-qa-source
+          path: |
+            tests/integration/fresh-install.test.mjs
+            tests/integration/inspect_pdf.py
+          if-no-files-found: error
+
+  clean-windows-11:
+    # Hosted Windows runners ship developer tooling/caches. They are never
+    # accepted as clean-install evidence. The operator must reset this VM.
+    if: github.event_name == 'workflow_dispatch' && inputs.clean_install
+    needs: candidate
+    runs-on: [self-hosted, Windows, X64, clean-win11-x64]
+    timeout-minutes: 70
+    env:
+      PURECV_REQUIRE_CLEAN_VM: '1'
+      CLEAN_VM_SNAPSHOT: ${{ inputs.vm_snapshot_id }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/candidate-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-qa-source
+          path: ${{ runner.temp }}/candidate-qa
+      - name: Check SHA256, extract final ZIP and prove the initial environment
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'candidate-input\purecv-release.zip'
+          $expected = (Get-Content -LiteralPath ($zip + '.sha256') -Raw).Split(' ')[0].Trim()
+          if ($expected -notmatch '^[a-f0-9]{64}$' -or (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'Final release ZIP digest mismatch' }
+          $install = Join-Path $env:RUNNER_TEMP ('PureCV 中文 发布回归 空格 ' + $env:GITHUB_RUN_ID)
+          $evidence = Join-Path $env:RUNNER_TEMP ('PureCV public evidence ' + $env:GITHUB_RUN_ID)
+          if (Test-Path -LiteralPath $install) { throw 'Installation directory already exists; reset the ephemeral VM' }
+          New-Item -ItemType Directory -Path $evidence -Force | Out-Null
+          Expand-Archive -LiteralPath $zip -DestinationPath $install
+          if ((Test-Path -LiteralPath (Join-Path $install '.runtime')) -or (Test-Path -LiteralPath (Join-Path $install '.purecv'))) { throw 'ZIP contains forbidden runtime or personal state' }
+          "PURECV_INSTALL_ROOT=$install" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PURECV_RELEASE_ZIP=$zip" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PURECV_RELEASE_EVIDENCE=$evidence" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          & (Join-Path $install 'scripts\release-clean-preflight.ps1') -EvidenceDirectory $evidence -Snapshot $env:CLEAN_VM_SNAPSHOT
+      - name: Run complete setup, doctor and repeated setup as the ordinary user
+        shell: powershell
+        timeout-minutes: 45
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $result = @{ setupExitCode=-1; doctorExitCode=-1; repeatSetupExitCode=-1; selectionReused=$false; nodeDownloadVerified=$false; setupDurationMs=0 }
+          try {
+            $clock = [Diagnostics.Stopwatch]::StartNew()
+            & (Join-Path $env:PURECV_INSTALL_ROOT 'setup.cmd') --no-pause *> (Join-Path $env:PURECV_RELEASE_EVIDENCE 'setup.raw.log')
+            $result.setupExitCode = $LASTEXITCODE
+            $result.setupDurationMs = $clock.ElapsedMilliseconds
+            if ($result.setupExitCode -ne 0) { throw 'Complete setup failed; inspect sanitized setup.log' }
+            $node = Join-Path $env:PURECV_INSTALL_ROOT '.runtime\node\node.exe'
+            $nodeManifest = Get-Content -LiteralPath (Join-Path $env:PURECV_INSTALL_ROOT 'scripts\node-runtime.json') -Raw | ConvertFrom-Json
+            $actual = & $node -p 'JSON.stringify({version:process.versions.node,arch:process.arch})' | ConvertFrom-Json
+            $result.nodeDownloadVerified = ($actual.version -eq $nodeManifest.version -and $actual.arch -eq 'x64')
+            if (-not $result.nodeDownloadVerified) { throw 'Project downloaded Node version/architecture mismatch' }
+            $selectionPath = Join-Path $env:PURECV_INSTALL_ROOT '.runtime\tex-selection.json'
+            $before = Get-Content -LiteralPath $selectionPath -Raw | ConvertFrom-Json
+            & (Join-Path $env:PURECV_INSTALL_ROOT 'doctor.cmd') --no-pause *> (Join-Path $env:PURECV_RELEASE_EVIDENCE 'doctor.raw.log')
+            $result.doctorExitCode = $LASTEXITCODE
+            if ($result.doctorExitCode -ne 0) { throw 'Doctor failed' }
+            & (Join-Path $env:PURECV_INSTALL_ROOT 'setup.cmd') --no-pause *> (Join-Path $env:PURECV_RELEASE_EVIDENCE 'repeat-setup.raw.log')
+            $result.repeatSetupExitCode = $LASTEXITCODE
+            if ($result.repeatSetupExitCode -ne 0) { throw 'Repeated setup failed' }
+            $after = Get-Content -LiteralPath $selectionPath -Raw | ConvertFrom-Json
+            $result.selectionReused = ($before.relativeExecutable -eq $after.relativeExecutable -and $before.fingerprint -eq $after.fingerprint)
+            if (-not $result.selectionReused) { throw 'Repeated setup unexpectedly replaced the managed environment' }
+          } finally {
+            [IO.File]::WriteAllText((Join-Path $env:PURECV_RELEASE_EVIDENCE 'installation.json'), ($result | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+          }
+      # QA tools arrive only after setup + doctor + reuse have succeeded. They
+      # are not product dependencies and cannot make installation pass.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Prepare independent PDF QA tools
+        shell: powershell
+        run: |
+          python -m pip install pypdf pdfplumber
+          if ($LASTEXITCODE -ne 0) { throw 'Independent PDF QA dependencies unavailable' }
+          python -m pip freeze > (Join-Path $env:PURECV_RELEASE_EVIDENCE 'qa-tool-versions.txt')
+          $python = (Get-Command python -ErrorAction Stop).Source
+          "PURECV_PYTHON=$python" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PURECV_PDF_INSPECTOR=$(Join-Path $env:RUNNER_TEMP 'candidate-qa\inspect_pdf.py')" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Verify the final ZIP with project Node and actual bilingual/multipage PDFs
+        shell: powershell
+        run: |
+          & (Join-Path $env:PURECV_INSTALL_ROOT '.runtime\node\node.exe') --test (Join-Path $env:RUNNER_TEMP 'candidate-qa\fresh-install.test.mjs')
+          if ($LASTEXITCODE -ne 0) { throw 'Final ZIP PDF QA failed' }
+      - name: Redact public installation logs
+        if: always()
+        shell: powershell
+        run: |
+          $evidence = $env:PURECV_RELEASE_EVIDENCE
+          if (-not $evidence) { $evidence = Join-Path $env:RUNNER_TEMP ('PureCV public evidence ' + $env:GITHUB_RUN_ID) }
+          if (Test-Path -LiteralPath $evidence) {
+            foreach ($name in @('setup','doctor','repeat-setup')) {
+              $raw = Join-Path $evidence ($name + '.raw.log')
+              if (Test-Path -LiteralPath $raw) {
+                $text = Get-Content -LiteralPath $raw -Raw
+                $text = [regex]::Replace($text, '(?im)(?:[A-Z]:[\\/]|\\\\)[^\r\n]*', '[local path redacted]')
+                [IO.File]::WriteAllText((Join-Path $evidence ($name + '.log')), $text, (New-Object Text.UTF8Encoding($false)))
+              }
+            }
+          }
+      - name: Preserve only public PDFs, digests and sanitized diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-win11-release-evidence
+          path: |
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/*.json
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/*.pdf
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/setup.log
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/doctor.log
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/repeat-setup.log
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/pdf-qa.log
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/multipage-qa.log
+            ${{ runner.temp }}/PureCV public evidence ${{ github.run_id }}/qa-tool-versions.txt
+          if-no-files-found: warn

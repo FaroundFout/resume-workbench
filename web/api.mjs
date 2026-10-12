@@ -21,6 +21,7 @@ export function createApi(baseUrl = '') {
   const resume = value => `/api/resumes/${id(value)}`;
   return {
     environment: () => request('/api/environment'),
+    checkEnvironment: () => request('/api/environment/check', { method: 'POST' }),
     async list() { return (await request('/api/resumes')).resumes; },
     create: payload => request('/api/resumes', { method: 'POST', json: payload }),
     read: value => request(resume(value)),

@@ -10,11 +10,12 @@ import { mountPreview } from './preview.mjs';
 const modules = { profile: ['基本信息', '01'], ...Object.fromEntries(Object.entries(SECTION_LABELS).map(([key, name], index) => [key, [name, `0${index + 2}`]])), layout: ['页面版式', '08'], logo: ['校徽设置', '09'] };
 
 /** Forms, serial saves and fixed build previews share one page-local draft per resume. */
-export function mountWorkspace(container, { api = createApi(), onDraftChange = () => {} } = {}) {
+export function mountWorkspace(container, { api = createApi(), onDraftChange = () => {}, environmentPollMs = 700 } = {}) {
   container.replaceChildren();
   let summaries = []; let current = null; let activeModule = 'profile'; let mounted = null; let disposed = false; let opening = 0;
   const drafts = new Map(); const controllers = new Map(); const states = new Map(); const statuses = new Map();
   let preview = null; let pendingSwitch = null; let compiling = false; let compilingResumeId = null; let deleting = false; let importing = false; let creating = false; let environment = null;
+  let environmentTimer = null; let environmentRequest = 0; let environmentSubmitting = false;
   const libraryBusy = () => deleting || importing || creating;
   const header = element('header', 'app-header');
   const brand = element('div', 'brand'); brand.append(element('span', 'brand-mark', 'R'), element('strong', 'wordmark', 'Resume Workbench'), element('span', 'local-tag', '简历工作台')); header.append(brand);
@@ -46,6 +47,10 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
   const importFile = element('input'); importFile.type = 'file'; importFile.accept = '.json,application/json'; importFile.hidden = true; importFile.setAttribute('aria-label', '选择 JSON 简历备份');
   importFile.addEventListener('change', importSelected); transfer.append(backup, importButton, importFile); sidebar.append(transfer);
   const environmentStatus = element('p', 'environment-status', '正在检测 XeLaTeX…'); environmentStatus.setAttribute('role', 'status'); sidebar.append(environmentStatus);
+  const recheck = button('重新检测环境', recheckEnvironment); recheck.id = 'environment-check-button'; sidebar.append(recheck);
+  const environmentDetails = element('details', 'environment-status');
+  const environmentSteps = element('ul'); environmentDetails.append(element('summary', '', '检测步骤'), environmentSteps);
+  environmentDetails.hidden = true; sidebar.append(environmentDetails);
   sidebar.append(button('环境与使用帮助', showEnvironmentHelp));
   const nav = element('nav', 'module-nav'); nav.setAttribute('aria-label', '编辑模块'); sidebar.append(nav);
   sidebar.append(element('p', 'sidebar-note', '从内容到版式，逐项完成。中文与英文各自保存，复制后可分别修改。'));
@@ -85,13 +90,58 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     revision.textContent = current ? `内容修订 ${current.revision}` : '本机文件 · 无云端传输';
     recovery.hidden = !status || !['conflict', 'error'].includes(status.state); keep.hidden = discard.hidden = !pendingSwitch;
     save.disabled = !current || deleting || status?.state === 'conflict';
-    compile.disabled = !current || deleting || compiling || current.latestBuild?.status === 'running' || status?.state === 'conflict' || environment?.available === false;
+    compile.disabled = !current || deleting || compiling || current.latestBuild?.status === 'running' || status?.state === 'conflict' || environment?.available === false || environment?.pdfReady === false;
     backup.disabled = !current || deleting || status?.state === 'conflict';
     remove.disabled = !current || libraryBusy() || (compiling && compilingResumeId === current.id) || current.latestBuild?.status === 'running' || status?.state === 'conflict';
     create.disabled = importButton.disabled = libraryBusy(); copy.disabled = !current || libraryBusy();
     name.disabled = !current || deleting; library.disabled = !summaries.length || libraryBusy(); formHost.inert = deleting;
     for (const item of nav.children) item.disabled = !current || deleting;
     preparation.hidden = !compiling || current?.id !== compilingResumeId || current?.latestBuild?.status === 'running';
+    recheck.disabled = environmentSubmitting || environment?.task?.status === 'running' || !api.checkEnvironment;
+  }
+  function renderEnvironment(value) {
+    environment = value;
+    const messages = {
+      'missing-compiler': '未找到可用的 XeLaTeX，请运行 setup.cmd 或检查编译器配置。简历仍可编辑、保存和备份。',
+      'missing-packages': 'PDF 宏包不完整，请在项目目录运行 repair.cmd，完成后点击“重新检测环境”。简历仍可编辑、保存和备份。',
+      'missing-resources': '字体、模板或图片缺失，请恢复完整项目后重新检测。简历仍可编辑、保存和备份。',
+      'verification-required': 'PDF 环境待验收，请点击“重新检测环境”。简历仍可编辑、保存和备份。',
+      'verification-failed': 'PDF 环境验收失败，请查看检测步骤；运行 doctor.cmd 查看诊断，按提示运行 repair.cmd 后重新检测。简历仍可编辑、保存和备份。',
+    };
+    const phases = { inspect: '检查编译器、宏包与项目资源', 'acquire-lease': '等待所选环境的验收租约',
+      'pdf-zh-CN': '编译中文样例', 'pdf-en': '编译英文样例', verify: '验收中英文样例' };
+    environmentStatus.textContent = value.task?.status === 'running'
+      ? `正在检测 PDF 环境 · ${phases[value.task.phase] || '正在验收'}…`
+      : value.pdfReady && value.state === 'ready' ? 'PDF 已就绪，中文、英文样例编译通过。'
+        : messages[value.state] || value.message || 'PDF 环境待验收，请重新检测。';
+    if (value.task?.status === 'cancelled') environmentStatus.textContent += ' 本次检测已取消，可重新检测。';
+    if (value.checks?.some(item => item.code === 'TEX_FORMAT_OUTDATED')) environmentStatus.textContent += ' 版本过旧时请运行 repair.cmd --update，更新后重新检测。';
+    environmentSteps.replaceChildren();
+    for (const item of value.checks || []) environmentSteps.append(element('li', '', `${item.status === 'passed' ? '通过' : item.status === 'pending' ? '待检查' : '未通过'} · ${item.message} [${item.code}]`));
+    environmentDetails.hidden = !environmentSteps.children.length;
+    renderStatus();
+  }
+  function scheduleEnvironmentPoll() {
+    clearTimeout(environmentTimer);
+    if (!disposed && api.environment) environmentTimer = setTimeout(refreshEnvironment,
+      environment?.task?.status === 'running' ? environmentPollMs : 15000);
+  }
+  async function refreshEnvironment() {
+    if (disposed || !api.environment || environmentSubmitting) return;
+    const request = ++environmentRequest;
+    try { const value = await api.environment(); if (!disposed && request === environmentRequest) renderEnvironment(value); }
+    catch (cause) { if (!disposed && request === environmentRequest) environmentStatus.textContent = cause.message || '编译环境暂时无法查询，请重新检测'; }
+    finally { if (!disposed && request === environmentRequest) scheduleEnvironmentPoll(); }
+  }
+  async function recheckEnvironment() {
+    if (disposed || environmentSubmitting || !api.checkEnvironment) return;
+    clearTimeout(environmentTimer); const request = ++environmentRequest;
+    environmentSubmitting = true; renderStatus();
+    try {
+      const started = await api.checkEnvironment(); if (disposed || request !== environmentRequest) return;
+      renderEnvironment({ ...environment, ...started });
+    } catch (cause) { if (!disposed && request === environmentRequest) environmentStatus.textContent = cause.message || '环境检测未启动，请稍后重试'; }
+    finally { environmentSubmitting = false; if (!disposed && request === environmentRequest) { renderStatus(); scheduleEnvironmentPoll(); } }
   }
   function attachDocument(doc) {
     drafts.set(doc.id, doc);
@@ -122,7 +172,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
       doc.latestBuild = build; states.get(doc.id).applyBuild(build);
       if (current?.id === doc.id) { preview.show(build); preview.setDirty(states.get(doc.id).read().previewDirty); }
     } catch (cause) { if (!disposed) error(cause); }
-    finally { compiling = false; compilingResumeId = null; if (!disposed) renderStatus(); }
+    finally { compiling = false; compilingResumeId = null; if (!disposed) { renderStatus(); refreshEnvironment(); } }
   }
   async function exportCurrent() {
     const doc = current; if (!doc || deleting) return;
@@ -181,6 +231,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
       if (!doc || !build || disposed) return;
       doc.latestBuild = build; states.get(doc.id).applyBuild(build);
       if (current?.id === doc.id) { preview?.setDirty(states.get(doc.id).read().previewDirty); renderStatus(); }
+      if (build.status !== 'running') refreshEnvironment();
     } });
     const state = doc && states.get(doc.id).read();
     if (state?.pdfBuild) preview.show(state.pdfBuild);
@@ -257,9 +308,9 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     dialog.append(element('h2', '', '环境与使用帮助'));
     for (const text of [
       'Windows 首次运行 setup.cmd，再运行 start.cmd。setup 首次需要联网，自动准备 .runtime/node 中的项目专用 Node，无需管理员权限或预装系统 Node，也不会修改系统 PATH。Linux/macOS 需要手动安装 Node.js 22 或更新版本。',
-      '生成 PDF 需要包含 XeLaTeX 的 MiKTeX 或 TeX Live。setup 会检查项目字体、模板和宏包，尝试为已有 MiKTeX 补齐已知缺包；中文和英文样例实际编译通过才报告完整安装成功。尚无编译器时请先安装，MiKTeX 官方入口为 https://miktex.org/download。',
+      '生成 PDF 需要包含 XeLaTeX 的 MiKTeX 或 TeX Live。setup 会检查项目字体、模板和宏包，为已有 MiKTeX 补齐已知缺包；没有编译器时，Windows 11 x64 可尝试准备项目私有 MiKTeX。中文和英文样例实际编译通过才报告完整安装成功。其他平台需人工安装，MiKTeX 官方入口为 https://miktex.org/download。',
       '启动时会检测已有编译器。若已安装却未找到，请把 config.example.json 复制为项目根目录的 config.local.json，设置 xelatexPath 为完整的 xelatex.exe（其他系统为 xelatex）路径，再重新启动服务。Windows JSON 路径建议使用正斜杠。',
-      '运行 doctor.cmd 可只验收、不安装宏包；运行 repair.cmd 可补齐已有 MiKTeX 的已知依赖并重新验收。TeX Live 缺包需人工补齐。完成后重新启动服务更新环境提示。setup.cmd --editor-only 只准备编辑环境，PDF 未准备时仍可编辑、保存和备份。',
+      '运行 doctor.cmd 可只验收、不安装宏包；运行 repair.cmd 可补齐已有 MiKTeX 的已知依赖并重新验收；旧格式或版本问题可运行 repair.cmd --update。TeX Live 缺包需人工补齐。完成后点击“重新检测环境”，中文和英文样例编译通过后可更新预览。编译或修复期间报忙时，请完成后再重试。setup.cmd --editor-only 只准备编辑环境，PDF 未准备时仍可编辑、保存和备份。',
       '内容停止输入后约 800ms 自动保存；更新预览需要手动点击，按钮会等待最新内容保存。编译失败时保留上次成功 PDF，下载前检查修订提示。',
       '中文与英文各自保存。复制为另一种语言只更换模板与自动纸张，内容需要手动翻译；自动纸张为中文 A4、英文 Letter。',
       '校徽可使用默认图片、隐藏或上传 PNG/JPG（最大 5MiB）；宽度 1.2–3.2cm，高度最多 3.2cm。导出备份包含内容、版式和校徽，换机后用导入备份恢复。详细说明见项目 docs/local-editor.md。',
@@ -270,10 +321,10 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     try { summaries = await api.list(); if (disposed) return; renderLibrary(); if (summaries.length) await openResume(summaries[0].id); }
     catch (cause) { if (!disposed) error(cause); }
   }
-  if (api.environment) api.environment().then(value => { if (!disposed) { environment = value; environmentStatus.textContent = value.message || (value.pdfReady ? 'PDF 已就绪' : 'PDF 环境待验收，请运行 doctor.cmd 后重新启动。'); renderStatus(); } }).catch(cause => { if (!disposed) environmentStatus.textContent = cause.message || '编译环境暂时无法查询'; });
+  if (api.environment) refreshEnvironment();
   else environmentStatus.textContent = '编译环境由本地服务检测';
   setPane('edit'); renderDocument(); start();
-  return { openResume, getDraft() { return current ? structuredClone({ resumeId: current.id, name: current.name, revision: current.revision, data: current.data }) : null; }, destroy() { disposed = true; ++opening; mounted?.destroy(); preview?.destroy(); for (const controller of controllers.values()) controller.destroy(); if (dialog.open) dialog.close(); container.replaceChildren(); } };
+  return { openResume, getDraft() { return current ? structuredClone({ resumeId: current.id, name: current.name, revision: current.revision, data: current.data }) : null; }, destroy() { disposed = true; ++opening; ++environmentRequest; clearTimeout(environmentTimer); mounted?.destroy(); preview?.destroy(); for (const controller of controllers.values()) controller.destroy(); if (dialog.open) dialog.close(); container.replaceChildren(); } };
 }
 
 const workspace = document.getElementById('workspace');

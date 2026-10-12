@@ -13,12 +13,21 @@ function id(value) {
 // Select controlled diagnostics instead of serializing internal discovery objects.
 function publicEnvironment(environment) {
   const report = toPublicEnvironment(environment);
-  return { ...report, message: environmentMessage(report) };
+  const message = environmentMessage(report).replace('完成后重新启动服务。', '完成后点击“重新检测环境”。');
+  return { ...report, message };
 }
 export async function route(request, response, url, { store, builds, environment }) {
   const method = request.method;
   const path = url.pathname;
-  if (method === 'GET' && path === '/api/environment') { sendJson(response, 200, publicEnvironment(environment)); return; }
+  if (method === 'GET' && path === '/api/environment') {
+    sendJson(response, 200, publicEnvironment(environment.getReport ? await environment.getReport() : environment)); return;
+  }
+  if (method === 'POST' && path === '/api/environment/check') {
+    // No user command, executable or package list is accepted by this endpoint.
+    if (!environment.check) throw new AppError('ENVIRONMENT_CHECK_UNAVAILABLE', '请重启服务以启用环境重检。', 503);
+    request.resume();
+    sendJson(response, 202, publicEnvironment(await environment.check())); return;
+  }
   if (path === '/api/resumes') {
     if (method === 'GET') {
       sendJson(response, 200, { resumes: (await store.list()).map(doc => ({ id: doc.id, name: doc.name, language: doc.data.language, revision: doc.revision, updatedAt: doc.updatedAt })) }); return;

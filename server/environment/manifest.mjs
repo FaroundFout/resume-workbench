@@ -8,7 +8,8 @@ export const requiredFonts = Object.freeze([
 export const requiredProjectFiles = Object.freeze([
   ...requiredFonts.map(file => `font/${file}`), 'font/Lato/OFL.txt', 'font/Simsun/LICENSE.txt',
   'templates/purecv-en/main.tex', 'templates/purecv-zh/main.tex', 'templates/shared/macros.tex',
-  'resume/uestc.png', 'resume_zh/uestc.png',
+  'templates/default-logo.png',
+  'samples/resume.zh.json', 'samples/resume.en.json',
 ]);
 export const requiredTexFiles = Object.freeze([
   'article.cls', 'geometry.sty', 'fontspec.sty', 'xeCJK.sty', 'ctexhook.sty', 'ctexpatch.sty', 'titlesec.sty', 'enumitem.sty',

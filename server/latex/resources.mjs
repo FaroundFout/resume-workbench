@@ -44,7 +44,7 @@ export async function prepareBuild({ projectRoot, dataDir, buildDir, snapshot, s
     logoBytes = image.bytes;
   } else if (data.logo.mode === 'default') {
     logoFile = 'resources/logo.png';
-    logoBytes = await readFile(join(projectRoot, data.language === 'zh-CN' ? 'resume_zh' : 'resume', 'uestc.png'), { signal });
+    logoBytes = await readFile(join(projectRoot, 'templates/default-logo.png'), { signal });
   }
   const cacheDir = resolve(dataDir, 'resources/font');
   const cwd = resolve(buildDir);

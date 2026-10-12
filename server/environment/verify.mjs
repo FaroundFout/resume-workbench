@@ -78,6 +78,7 @@ export async function verifyPdfEnvironment(config, toolchain, options = {}) {
       signal?.throwIfAborted();
       const id = `pdf-${language}`;
       report.task.phase = id;
+      options.onProgress?.(id);
       log(`开始 ${language} 样例编译验收。\n`);
       const started = performance.now();
       const controller = new AbortController();
@@ -120,7 +121,7 @@ export async function verifyPdfEnvironment(config, toolchain, options = {}) {
             const format = !missing.length && (result.log ?? '').match(/LaTeX Warning:\s*You have requested release\s+[`'"](?<required>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+of LaTeX,\s*but only release\s+[`'"](?<available>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+is available/iu);
             if (format) {
               const action = toolchain.flavour === 'miktex'
-                ? '请在 MiKTeX Console 的 Updates 中更新已安装宏包；若仍显示旧版本，再重建 XeLaTeX 格式。'
+                ? '请运行 repair.cmd --update 同步已安装宏包并重建 XeLaTeX 格式；也可在 MiKTeX Console 的 Updates 中更新后重建该格式。'
                 : '请使用所选 TeX Live 的管理工具更新宏包并重建 XeLaTeX 格式。';
               report.checks.push(failedCheck(`${id}-format`, 'TEX_FORMAT_OUTDATED',
                 `日志同时提示宏包要求 LaTeX ${format.groups.required}，当前格式为 ${format.groups.available}。${action}完成后运行 doctor.cmd；具体编译错误仍见日志。`));

@@ -15,9 +15,11 @@ The project ships editable source. Windows setup downloads a project-local runti
 
 1. Clone or download the complete project into a writable folder and double-click **`setup.cmd`** (or run `.\setup.cmd` in PowerShell). It uses Windows PowerShell 5.1 to download official portable Node for native x64 or ARM64 Windows and validate its checksum, version and architecture. Other architectures are unsupported.
 2. Read the result, then double-click **`start.cmd`** (or run `.\start.cmd`). Setup does not start the server. `setup.cmd --no-pause` is available for automation; otherwise its window remains readable until a key is pressed.
-3. Setup checks project resources and XeLaTeX, installs known missing packages into an existing user MiKTeX installation, then compiles the actual Chinese and English templates. **Both languages must pass before full setup succeeds; failure returns a nonzero exit code.** If no compiler exists, first install [MiKTeX](https://miktex.org/download) or TeX Live. This P0 release does not install a TeX distribution or rewrite local configuration. Use `setup.cmd --editor-only` to prepare editing alone; see the [guide](docs/local-editor.md).
+3. Setup checks project resources, reuses the selected XeLaTeX and repairs known missing MiKTeX packages. If no compiler exists, Windows 11 x64 setup can prepare a private MiKTeX generation under this project's `.runtime/tex/`, using a pinned official bootstrap checksum. **Both actual Chinese and English templates must compile before full setup succeeds or a new TeX selection is published.** Invalid explicit paths fail without silently switching compilers. Other platforms require manual TeX installation. Use `setup.cmd --editor-only` for editing alone; see the [guide](docs/local-editor.md).
 
-`doctor.cmd` verifies bilingual PDFs without installing packages. `repair.cmd` repairs known dependencies in an existing MiKTeX installation and verifies again. Both accept `--no-pause`; restart the server afterwards. Missing TeX Live packages require manual installation.
+`doctor.cmd` verifies bilingual PDFs without installing packages. `repair.cmd` repairs known missing MiKTeX dependencies. For newer packages with an older LaTeX format, use `repair.cmd --update`: it explicitly updates installed packages, rebuilds the XeLaTeX format and verifies again. All accept `--no-pause`. Click **重新检测环境** in the editor after repair to refresh readiness. Missing TeX Live packages require manual installation.
+
+Private TeX deployment and release verification have automated fixture coverage; an actual clean Windows 11 installation is still a pending release gate. See the [installation matrix](docs/verification/installation-matrix.md). The bootstrap checksum pins the setup tool, not the rolling package repository.
 
 `start.cmd` prefers this project's `.runtime/node/node.exe` even when an older system Node is present. Its PATH change applies only to the launched process and its children. `.runtime/` is Git ignored; it contains downloaded runtimes and temporary files, and must not be committed. Rerun setup to repair an incorrect/broken runtime; download or validation failures preserve an existing runtime. Setup needs neither system Node nor administrator rights and makes no global installation changes.
 
@@ -86,7 +88,7 @@ Input must be `{name:string,data:ResumeData}`; see `web/shared/model.mjs`. Each 
 
 ## Original manual LaTeX workflow
 
-The editor uses `templates/`. The original `resume/` and `resume_zh/` sources remain editable by hand, with fictional content in all public modules. This workflow needs XeLaTeX, not Node. Makefile usage additionally requires make; watch scripts require Bash, fswatch, realpath, and find.
+The editor uses `templates/`. The original `resume/` and `resume_zh/` sources remain editable by hand. This workflow needs XeLaTeX, not Node. Makefile usage additionally requires make; watch scripts require Bash, fswatch, realpath, and find.
 
 Enter the appropriate subdirectory from the project root; the root has no resume Makefile:
 
@@ -110,7 +112,10 @@ Run `make clean` in that same directory to remove intermediates and its generate
 
 English starts at `resume/resume.tex` with modules in `resume/src/`; Chinese starts at `resume_zh/resume_zh.tex` with modules in `resume_zh/src/`. Edit the corresponding heading and content modules. Heading selection follows the active entry's `input`/`insertHeading` setup; confirm which entry you compile. Editor data does not modify these original sources.
 
-To watch changes, install the watch dependencies and run `bash ./watch_tex.sh` from the corresponding subdirectory; the scripts watch the current directory.
+To watch changes, install the watch dependencies and run `bash ./watch_tex.sh` from the corresponding subdirectory; the scripts watch the current directory. Original heading previews:
+
+<img src="./preview.png" alt="Original image heading preview"/>
+<img src="./preview_basic.png" alt="Original basic heading preview"/>
 
 ## License and inspiration
 

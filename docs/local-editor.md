@@ -12,12 +12,15 @@
 
 setup 准备 Node 后检查完整项目资源和所选 XeLaTeX 的依赖，为已有 MiKTeX 自动补齐清单内缺失的宏包，随后用真实模板分别编译中文和英文样例。**两种语言均通过才报告完整安装成功；只有 XeLaTeX 可执行不算验收通过。** 健康环境不会更新包数据库或联网装包；正式简历编译禁止 MiKTeX 临时弹窗装包。修复和编译共享同一安装的占用，繁忙时按提示稍后重试。
 
-当前 P0 尚不自动安装缺失的 LaTeX 发行版；没有 XeLaTeX 时完整 setup 返回非零，请先安装 [MiKTeX](https://miktex.org/download) 或 TeX Live 后重试。TeX Live 缺包给出人工修复指引，共享 MiKTeX 安装无法确认普通用户修复范围时会停止。`setup.cmd --editor-only` 只准备编辑环境并明确 PDF 未准备，可先运行 `start.cmd` 编辑、保存和备份。
+没有显式 `xelatexPath`、项目已选环境或现有 XeLaTeX 时，setup 在 Windows 11 x64 上尝试从官方固定 SHA256 引导工具部署项目私有 MiKTeX。新环境放在 `.runtime/tex/` 的稳定目录，补齐依赖并通过双语验收后才发布选择记录；不修改系统 TeX、全局 PATH 或个人配置。引导工具版本固定，在线宏包仓库仍会变化。其他平台请先人工安装 [MiKTeX](https://miktex.org/download) 或 TeX Live。显式编译器路径无效时直接失败，不会换另一套环境。TeX Live 缺包给出人工修复指引，共享 MiKTeX 安装无法确认普通用户修复范围时会停止。`setup.cmd --editor-only` 只准备编辑环境并明确 PDF 未准备，可先运行 `start.cmd` 编辑、保存和备份。
+
+自动部署已有代码和隔离故障回归；全新 Windows 11 普通用户机器的实际联网安装仍需执行发布验收，不能把开发机编译成功当成该项通过。验收状态见 [安装矩阵](verification/installation-matrix.md)。
 
 - `doctor.cmd`：只读查询依赖并执行双语编译验收，不安装宏包。
 - `repair.cmd`：修复已有 MiKTeX 的已知缺包并重新验收。
+- `repair.cmd --update`：明确同步所选 MiKTeX 的已安装宏包（包括 LaTeX 内核）、补齐缺包、刷新文件名数据库并重建 XeLaTeX 格式，然后重新编译中英文样例。适合“宏包要求新日期，但实际加载的 LaTeX 格式较旧”等版本不同步情况。更新部分成功可能被下次重试复用，不承诺回滚第三方包数据库；不自动使用管理员范围。健康环境无需执行这个选项。
 - 上述入口都支持 `--no-pause`；Node 缺失时先运行 setup。脚本不改写个人配置或简历历史，验收使用独立临时目录，结束后清理。
-- 通过结果以资源、编译器及清单内依赖内容指纹保存在 `.runtime/environment-validation.json`。启动会重新查询和比对；模板、字体或这些依赖改变后不能复用旧结果。修复后重新启动服务更新网页提示。
+- 通过结果以资源、编译器及清单内依赖内容指纹保存在 `.runtime/environment-validation.json`。启动会重新查询和比对；模板、字体或这些依赖改变后不能复用旧结果。修复后点击网页“重新检测环境”，等待中英文样例通过；编译或检测繁忙时稍后重试。网页检测只做查询和编译，不安装宏包。
 
 `.runtime/` 全目录已被 Git 忽略，下载的可执行文件、ZIP 和临时文件不得提交。不要在 runtime 中存放个人数据。Windows 也可改用两个 README 中的官方 Node MSI 手动安装方式；没有项目 runtime 时启动器接受系统 Node 22+。
 
@@ -54,7 +57,7 @@ Windows portable Node 直接入口是 `.runtime\node\node.exe server/index.mjs`�
 }
 ```
 
-这是路径格式示例，需改成你机器上的实际位置。未设置 xelatexPath（null）时自动检测 PATH 与常见安装位置；明确设置后仅使用该文件，不会静默改用其他编译器。xelatexPath 指向可执行文件，不是目录。Windows 也可用双反斜杠转义路径；不要写单个反斜杠。dataDir 和编译器相对路径都以项目根目录为基准，不随终端当前目录改变。修改配置后停止并重启服务。
+这是路径格式示例，需改成你机器上的实际位置。未设置 xelatexPath（null）时优先读取通过验收的项目选择记录，再检测 PATH 与常见安装位置；明确设置后仅使用该文件，不会静默改用其他编译器。xelatexPath 指向可执行文件，不是目录。Windows 也可用双反斜杠转义路径；不要写单个反斜杠。dataDir 和编译器相对路径都以项目根目录为基准，不随终端当前目录改变。修改配置后停止并重启服务。
 
 数据目录默认为 .purecv/；可指定其他可写目录。config.local.json 与默认数据目录已被 Git 忽略。改变数据目录后需自行添加忽略规则，尤其不要让真实数据进入公开仓库。
 
@@ -132,7 +135,7 @@ node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 - **编译器已找到但编译失败**：检查页面显示的构建日志与错误。提示 `File '…sty' not found` 通常表示缺宏包；停止服务，在完整项目根目录运行 `repair.cmd`，为已有 MiKTeX 补齐清单内缺包并验收中文、英文 PDF，通过后重新运行 `start.cmd`。服务启动会检查依赖，正式简历编译禁止 MiKTeX 临时安装宏包；安装与修复集中在 setup/repair 阶段。TeX Live、未识别的依赖或无法确认权限的共享安装需按诊断使用发行版管理工具人工处理。
 - **安装 geometry 后仍报 xeCJK 缺失**：`geometry.sty` 已补齐后，编译才会继续并暴露下一个缺包；这并不表示 geometry 安装失败。`xeCJK.sty` 对应 MiKTeX 宏包名 `xecjk`。优先运行 `repair.cmd` 检查整份依赖清单；人工处理时，在 MiKTeX Console 的 Packages 中安装 `geometry`、`xecjk` 及日志提示的其他宏包，再运行 `doctor.cmd` 验收，不要删除模板中的 `\usepackage`。
 - **缺少 ctexhook.sty 或 ctexpatch.sty**：这两个文件是 xeCJK 的支持依赖，都包含在 MiKTeX 的 [`ctex` 宏包](https://miktex.org/packages/ctex/files)中。新版 `repair.cmd` 会统一补齐；旧版报 `TEX_PACKAGE_UNKNOWN` 时先更新项目代码，也可在同一用户的 MiKTeX Console > Packages 搜索并安装 `ctex`，随后运行 `doctor.cmd`。未知宏包诊断会保留具体缺失文件名。
-- **宏包要求的 LaTeX 版本比当前格式新**：例如日志要求 `2026/06/01`，当前却只有 `2025-11-01`。先处理明确的缺包；若仍失败，在所选 MiKTeX 的 Console > Updates 中执行 Check for Updates、Update now，按程序提示重启并再次检查更新，直到没有待更新项，见[官方维护说明](https://miktex.org/howto/miktex-console)。若更新后仍显示旧版本，在 Console > Settings > Formats 中选中 `xelatex` 并右键 Build format；也可在同一 MiKTeX 环境运行 `miktex formats build xelatex`，见[官方格式管理说明](https://docs.miktex.org/manual/miktex-formats.html)。随后运行 `doctor.cmd`；两种语言通过后运行 `start.cmd`。脚本不会自动升级整个发行版，单独的版本警告不会被当作当前编译失败的唯一原因。
+- **宏包要求的 LaTeX 版本比当前格式新**：例如日志要求 `2026/06/01`，当前却只有 `2025-11-01`。先处理明确的缺包；若仍失败，运行 `repair.cmd --update` 同步所选 MiKTeX 的已安装宏包并重建 XeLaTeX 格式。也可在同一安装的 Console > Updates 中执行 Check for Updates、Update now，按提示重启并再次检查，见[官方维护说明](https://miktex.org/howto/miktex-console)。若仍显示旧日期，在 Console > Settings > Formats 中选中 `xelatex` 并右键 Build format；也可在同源环境运行 `miktex formats build xelatex`，见[格式管理说明](https://docs.miktex.org/manual/miktex-formats.html)。随后运行 `doctor.cmd` 或网页“重新检测环境”；两种语言通过才表示 PDF 就绪。默认补包不全量升级，只有显式 `--update` 或新项目私有环境准备会同步版本；单独的版本警告不会被当作编译失败的唯一原因。
 - **字体或素材缺失**：确认移动项目时保留 font/、模板与默认校徽，必要时重新获取完整源码；不要手工编辑资产 ID。
 - **端口占用**：config.local.json 修改 port 后重启，使用新网址。
 - **无法取得数据目录独占权**：先关闭同一数据目录的其他实例；更改网页 port 不能绕过此限制。若没有其他实例，可能是系统保留或其他程序占用了保护端口，按上文说明选择另一 dataDir。

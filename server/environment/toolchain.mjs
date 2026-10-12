@@ -1,6 +1,7 @@
 import { stat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, delimiter } from 'node:path';
 import { discoverCompiler } from '../compiler/environment.mjs';
+import { readManagedSelection, readManagedRepository } from './selection.mjs';
 
 const samePath = (a, b) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
 const inside = (root, file) => {
@@ -21,7 +22,9 @@ async function sibling(bin, name) {
 /** Select once; companions never independently search PATH or another distribution. */
 export async function resolveToolchain(config, { signal, env = process.env, onDiscovery, ...options } = {}) {
   signal?.throwIfAborted();
-  const result = await discoverCompiler(config, { ...options, env, signal });
+  const managed = !config.xelatexPath && config.projectRoot ? await readManagedSelection(config.projectRoot) : null;
+  let result = managed ? await discoverCompiler({ ...config, xelatexPath: resolve(config.projectRoot, managed.relativeExecutable) }, { ...options, env, signal }) : null;
+  if (!result?.available) result = await discoverCompiler(config, { ...options, env, signal });
   onDiscovery?.(result);
   signal?.throwIfAborted();
   if (!result.available) return null;
@@ -42,6 +45,10 @@ export async function resolveToolchain(config, { signal, env = process.env, onDi
   signal?.throwIfAborted();
   const pathKey = Object.keys(env).find(key => key.toUpperCase() === 'PATH') || 'PATH';
   const childEnv = { ...env, [pathKey]: `${identity}${delimiter}${env[pathKey] || ''}` };
+  if (managed && samePath(executable, resolve(config.projectRoot, managed.relativeExecutable))) {
+    const repository = await readManagedRepository(config.projectRoot);
+    if (repository) childEnv.MIKTEX_REPOSITORY = repository;
+  }
   const scope = inside(config.projectRoot, executable) ? 'project'
     : [env.LOCALAPPDATA, env.APPDATA, env.USERPROFILE, env.HOME].some(root => inside(root, executable)) ? 'user' : 'shared';
   return { flavour: result.flavour, executable, version: result.version, manager, lookup, scope, identity, env: childEnv };

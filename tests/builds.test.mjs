@@ -341,3 +341,31 @@ test('successful two-pass build reports final diagnostics while full log retains
     return {exitCode:0,timedOut:false,aborted:false,log:pass===1?'LaTeX Warning: Rerun to get cross-references right.\nOutput written on resume.pdf (1 page).':'LaTeX Warning: final genuine warning\nOutput written on resume.pdf (1 page).'};
   }});
 });
+
+test('a missing package build revokes environment readiness but a user LaTeX error does not', async () => {
+  const failures = [];
+  let log = "! LaTeX Error: File `geometry.sty' not found.";
+  await fixture(async f => {
+    assert.equal((await f.submitAndFinish()).status, 'failed');
+    assert.equal(failures.length, 1); assert.equal(failures[0].code, 'TEX_PACKAGE_MISSING');
+    log = '! Undefined control sequence. \\userMistake';
+    assert.equal((await f.submitAndFinish()).status, 'failed');
+    assert.equal(failures.length, 1);
+  }, { onEnvironmentFailure: report => { failures.push(report); }, run: async () => ({ exitCode: 1, timedOut: false, aborted: false, log }) });
+});
+
+test('an environment cache write failure does not strand or obscure the failed build', async () => fixture(async f => {
+  const record = await f.submitAndFinish();
+  assert.equal(record.status, 'failed'); assert.equal(record.error.code, 'COMPILE_FAILED');
+}, { onEnvironmentFailure: async () => { throw new Error('cannot remove cache'); },
+  run: async () => ({ exitCode: 1, timedOut: false, aborted: false, log: "! LaTeX Error: File `geometry.sty' not found." }) }));
+
+test('format warning offers explicit update guidance without treating a user syntax error as environment damage', async () => {
+  const failures = [];
+  await fixture(async f => {
+    const record = await f.submitAndFinish();
+    assert.equal(record.status, 'failed'); assert.equal(record.error.code, 'COMPILE_FAILED');
+    assert.match(record.warnings.join('\n'), /repair\.cmd --update/); assert.equal(failures.length, 0);
+  }, { onEnvironmentFailure: value => { failures.push(value); }, run: async () => ({ exitCode: 1, timedOut: false, aborted: false,
+    log: "LaTeX Warning: You have requested release `2025/06/01' of LaTeX,\n but only release `2023/11/01' is available.\n! Undefined control sequence. \\userMistake" }) });
+});

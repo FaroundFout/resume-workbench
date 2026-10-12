@@ -7,7 +7,7 @@ import { runProcess } from '../server/compiler/process.mjs';
 import { discoverCompiler } from '../server/compiler/environment.mjs';
 
 const fonts = ['Lato/Lato-Regular.ttf', 'Lato/Lato-Bold.ttf', 'Lato/Lato-Italic.ttf', 'Lato/Lato-BoldItalic.ttf', 'Simsun/SourceHanSerifCN-Regular.ttf', 'Simsun/SourceHanSerifCN-Bold.ttf'];
-const projectFiles = [...fonts.map(name => `font/${name}`), 'font/Lato/OFL.txt', 'font/Simsun/LICENSE.txt', 'templates/purecv-en/main.tex', 'templates/purecv-zh/main.tex', 'templates/shared/macros.tex', 'resume/uestc.png', 'resume_zh/uestc.png'];
+const projectFiles = [...fonts.map(name => `font/${name}`), 'font/Lato/OFL.txt', 'font/Simsun/LICENSE.txt', 'templates/purecv-en/main.tex', 'templates/purecv-zh/main.tex', 'templates/shared/macros.tex', 'templates/default-logo.png', 'samples/resume.zh.json', 'samples/resume.en.json'];
 const texFiles = ['article.cls', 'geometry.sty', 'fontspec.sty', 'xeCJK.sty', 'ctexhook.sty', 'ctexpatch.sty', 'titlesec.sty', 'enumitem.sty', 'tabularx.sty', 'array.sty', 'graphicx.sty', 'hyperref.sty', 'accsupp.sty'];
 test('child-local environment is passed without global mutation and separates lookup stdout from errors', async () => {
   const result = await runProcess({ executable: process.execPath, cwd: tmpdir(), args: ['-e', 'console.log(process.env.PURECV_TEST_CHILD); console.error("diagnostic only");'],

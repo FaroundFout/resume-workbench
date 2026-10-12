@@ -22,6 +22,27 @@ test('compiler identity stays distinct from PDF readiness in the public environm
   assert.doesNotMatch(JSON.stringify(env), /private|SECRET|xelatex\.exe/);
 });
 
+test('controlled environment POST starts one task and is covered by Host and Origin checks', async t => {
+  let checks = 0;
+  const report = { editorReady: true, pdfReady: false, state: 'checking', checks: [],
+    task: { id: 'controlled-task', phase: 'inspect', status: 'running' }, toolchain: { executable: 'C:/private/xelatex.exe' } };
+  const f = await fixture(t, { environment: { getReport: async () => report, check: () => { checks++; return report; } } });
+  for (const origin of ['https://evil.invalid', undefined]) {
+    const response = await fetch(f.url + '/api/environment/check', { method: 'POST', headers: origin ? { Origin: origin } : {} });
+    assert.equal(response.status, 403);
+  }
+  const foreign = await new Promise((resolve, reject) => {
+    const request = http.request(f.url + '/api/environment/check', { method: 'POST', headers: { Origin: f.url, Host: 'evil.invalid' } }, response => {
+      response.resume(); response.on('end', () => resolve(response.statusCode));
+    }); request.on('error', reject); request.end();
+  });
+  assert.equal(foreign, 403); assert.equal(checks, 0);
+  const response = await f.request('/api/environment/check', { method: 'POST' }); assert.equal(response.status, 202);
+  assert.equal((await response.json()).task.id, 'controlled-task');
+  const publicReport = await (await f.request('/api/environment')).json();
+  assert.equal(publicReport.task.phase, 'inspect'); assert.doesNotMatch(JSON.stringify(publicReport), /private|C:\//);
+});
+
 test('cross-origin and absent-origin writes cannot alter storage', async t => {
   const f = await fixture(t);
   for (const origin of ['https://example.invalid', 'null', `http://127.0.0.1:${f.server.address().port + 1}`, undefined]) {

@@ -78,6 +78,18 @@ test('unsupported and conflicting command modes fail before touching dependencie
   }
 });
 
+test('explicit update is accepted only with prepare and passes intent to the preparation service', async t => {
+  const root = await fixture(t);
+  let update;
+  const result = await invoke(root, ['--prepare', '--update'], { prepare: async (_config, options) => { update = options.update; return report('ready'); } });
+  assert.equal(result.exitCode, 0); assert.equal(update, true);
+  assert.match(result.lines, /更新.*宏包|同步.*宏包/);
+  for (const args of [['--verify', '--update'], ['--check', '--update'], ['--editor-only', '--update'], ['--prepare', '--update', '--update']]) {
+    const rejected = await invoke(root, args, { prepare: () => { throw Error('must not prepare'); }, inspect: () => { throw Error('must not inspect'); } });
+    assert.equal(rejected.exitCode, 1); assert.match(rejected.lines, /参数|模式/);
+  }
+});
+
 test('validation record only restores ready for matching fingerprints and a complete quick check', async t => {
   const root = await fixture(t);
   await saveEnvironmentRecord(root, report('ready'));

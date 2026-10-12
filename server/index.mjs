@@ -5,8 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { loadConfig } from './config.mjs';
 import { createStore } from './storage.mjs';
-import { inspectEnvironment } from './environment/check.mjs';
-import { applyEnvironmentRecord } from './environment/record.mjs';
+import { createEnvironmentService } from './environment/service.mjs';
 import { environmentMessage } from './environment/diagnostics.mjs';
 import { createBuildManager } from './compiler/builds.mjs';
 import { createApp } from './app.mjs';
@@ -21,7 +20,7 @@ async function initializeLibrary(config, store) {
     const examples = await Promise.all([
       ['zh-CN', 'resume.zh.json', '中文虚构示例'], ['en', 'resume.en.json', 'English fictional example'],
     ].map(async ([language, file, name]) => ({ name, language,
-      seed: JSON.parse(await readFile(join(config.projectRoot, 'examples', file), 'utf8')) })));
+      seed: JSON.parse(await readFile(join(config.projectRoot, 'samples', file), 'utf8')) })));
     const created = [];
     try {
       for (const example of examples) created.push((await store.create(example)).id);
@@ -64,20 +63,26 @@ export async function startServer(projectRoot, { openBrowser = true } = {}) {
   try {
     const store = await createStore(config);
     await initializeLibrary(config, store);
-    environment = await applyEnvironmentRecord(projectRoot, await inspectEnvironment(config));
-    builds = createBuildManager({ config, store });
+    environment = createEnvironmentService({ config });
+    await environment.initialize();
+    builds = createBuildManager({ config, store, onEnvironmentFailure: diagnosis => environment.invalidate(diagnosis) });
+    environment.setBuildManager(builds);
     await builds.recover();
     server = createApp({ config, store, builds, environment });
     await new Promise((resolveListen, reject) => { server.once('error', reject); server.listen(config.port, '127.0.0.1', resolveListen); });
   } catch (cause) {
-    try { await builds?.shutdown(); } finally { await owner.release(); }
+    try { await Promise.allSettled([environment?.shutdown(), builds?.shutdown()]); } finally { await owner.release(); }
     if (cause.code === 'EADDRINUSE') throw new AppError('PORT_IN_USE', '端口已被占用，请在 config.local.json 修改 port 后重新启动', 500);
     throw cause;
   }
   let closing;
   server.shutdown = () => closing ??= (async () => {
     process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
-    try { await builds.shutdown(); }
+    try {
+      const results = await Promise.allSettled([environment.shutdown(), builds.shutdown()]);
+      const failure = results.find(result => result.status === 'rejected');
+      if (failure) throw failure.reason;
+    }
     finally {
       try { await new Promise((resolveClose, reject) => server.close(error => error ? reject(error) : resolveClose())); }
       finally { await owner.release(); }
@@ -87,7 +92,7 @@ export async function startServer(projectRoot, { openBrowser = true } = {}) {
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   const url = `http://127.0.0.1:${config.port}`;
   console.log(`Resume Workbench: ${url}`);
-  console.log(environmentMessage(environment));
+  console.log(environmentMessage(await environment.getReport()));
   console.log('使用与环境说明：docs/local-editor.md；网页侧栏可打开“环境与使用帮助”。');
   if (openBrowser) {
     try { await openUrl(url); } catch { console.error(`无法自动打开浏览器，请手动访问 ${url}`); }

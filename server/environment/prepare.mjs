@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { AppError } from '../errors.mjs';
 import { acquireEnvironmentLease } from './lease.mjs';
-import { installMissingPackages } from './providers/miktex.mjs';
+import { installMissingPackages, updateInstalledPackages, rebuildXeLaTeXFormat } from './providers/miktex.mjs';
 
 const missingFiles = report => [...new Set([
   ...report.checks.filter(check => check.status === 'failed' && check.code === 'TEX_PACKAGE_MISSING').map(check => check.id),
@@ -21,7 +21,8 @@ const addFailure = (report, code, message) => ({ ...report, pdfReady: false,
  * Collaborators are internal deterministic test seams; defaults are production.
  */
 export async function preparePdfEnvironment(config, { signal, log = () => {}, inspect, install = installMissingPackages,
-  verify, acquireLease = acquireEnvironmentLease } = {}) {
+  verify, acquireLease = acquireEnvironmentLease, update = false,
+  synchronize = updateInstalledPackages, rebuild = rebuildXeLaTeXFormat } = {}) {
   inspect ??= (await import('./check.mjs')).inspectEnvironment;
   const { packageIdsByFlavour } = await import('./manifest.mjs');
   let environment;
@@ -42,7 +43,8 @@ export async function preparePdfEnvironment(config, { signal, log = () => {}, in
     environment = await inspect(config, { signal });
     signal?.throwIfAborted();
     if (!trustworthyInspection(environment)) return finish(environment);
-    const selected = environment.toolchain;
+    let selected = environment.toolchain;
+    if (update && selected.flavour !== 'miktex') return finish(addFailure(environment, 'TEXLIVE_REPAIR_REQUIRED', '自动版本同步仅支持所选 MiKTeX；请使用所选 TeX Live 的管理工具更新并重建格式，再运行 doctor.cmd。'));
     if (missingFiles(environment).length) {
       if (selected.flavour !== 'miktex') return finish(addFailure(environment, 'TEXLIVE_REPAIR_REQUIRED', '请使用所选 TeX Live 安装的包管理器人工补齐依赖，再运行 doctor.cmd。'));
       if (packages(environment) === null) return finish(addFailure(environment, 'TEX_PACKAGE_UNKNOWN', '模板请求了未列入清单的宏包，请人工检查依赖；未知文件不会自动安装。'));
@@ -53,6 +55,24 @@ export async function preparePdfEnvironment(config, { signal, log = () => {}, in
     const assertSelected = checked => {
       if (!checked.toolchain || checked.toolchain.executable !== selected.executable || checked.toolchain.flavour !== selected.flavour) throw new AppError('TEX_TOOLCHAIN_CHANGED', '准备期间所选 LaTeX 环境发生变化，请重新检查。', 409);
     };
+    async function maintenance(action, nextPhase) {
+      phase = nextPhase;
+      if (packageBudget <= 0) throw new AppError('TEX_PACKAGE_TIMEOUT', '宏包准备已超过 10 分钟限制，请检查网络后重试。', 408);
+      const started = performance.now();
+      try { await action(selected, { signal, log, timeoutMs: Math.max(1, Math.floor(packageBudget)) }); }
+      finally { packageBudget -= performance.now() - started; }
+      signal?.throwIfAborted();
+    }
+    if (update) {
+      await maintenance(synchronize, 'update');
+      // An update can change executable identity and package content. Probe the
+      // same explicit path again rather than reusing the old --version result.
+      environment = await inspect({ ...config, xelatexPath: selected.executable }, { signal, env: selected.env });
+      signal?.throwIfAborted();
+      if (!trustworthyInspection(environment)) return finish(environment);
+      assertSelected(environment);
+      selected = environment.toolchain;
+    }
     async function repair(report, extra = []) {
       if (!trustworthyInspection(report)) return report;
       assertSelected(report);
@@ -77,6 +97,7 @@ export async function preparePdfEnvironment(config, { signal, log = () => {}, in
       environment = await repair(environment);
       if (!trustworthyInspection(environment) || missingFiles(environment).length) return finish(environment);
     }
+    if (update) await maintenance(rebuild, 'format');
     for (let round = 0; ; round++) {
       phase = 'verify';
       verify ??= (await import('./verify.mjs')).verifyPdfEnvironment;

@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "version": "5.5.0+1763023",
+  "fileName": "miktexsetup-5.5.0+1763023-x64.zip",
+  "url": "https://miktex.org/download/ctan/systems/win32/miktex/setup/windows-x64/miktexsetup-5.5.0%2B1763023-x64.zip",
+  "sha256": "0571e90f6d94353089b4f189fd82a532f9fe559a388c7e7f1102b14b3c1ae27d",
+  "platform": { "os": "Windows 11", "architecture": "x64", "minimumBuild": 22000 },
+  "packageSet": "basic",
+  "executable": "miktexsetup_standalone.exe",
+  "source": "https://miktex.org/download",
+  "documentation": "https://docs.miktex.org/manual/miktexsetup.html"
+}
