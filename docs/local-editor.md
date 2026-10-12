@@ -10,7 +10,14 @@
 
 **Windows 首次先运行 `setup.cmd`，完成后再运行 `start.cmd`。无需预装系统 Node 或管理员权限，首次下载需要联网。** setup 用系统自带 Windows PowerShell 5.1，下载并验证固定版本 Node.js 24.21.0 的官方 x64/ARM64 ZIP，将 portable runtime 放在项目 `.runtime/node/`。它校验 SHA256、版本与原生架构后才发布；不修改系统 Node、全局 PATH 或注册表。已有健康版本时离线复用；损坏/错误版本时重新 setup，下载或验证失败保留原 runtime。其他 Windows 架构不受支持。双击窗口会等待按键，自动化用 `setup.cmd --no-pause`；失败返回非零状态，请按提示检查网络/目录权限后重试。
 
-setup 只准备 Node，并通过应用现有配置和检测确认 XeLaTeX；不写 `config.local.json`，不安装编译器或宏包。**找到 XeLaTeX 只确认身份，首次 PDF 编译才验证宏包。** 缺失时 Node/编辑器已就绪，可先编辑、保存和备份；PDF 仍需 [MiKTeX 官方下载](https://miktex.org/download) 或 TeX Live。
+setup 准备 Node 后检查完整项目资源和所选 XeLaTeX 的依赖，为已有 MiKTeX 自动补齐清单内缺失的宏包，随后用真实模板分别编译中文和英文样例。**两种语言均通过才报告完整安装成功；只有 XeLaTeX 可执行不算验收通过。** 健康环境不会更新包数据库或联网装包；正式简历编译禁止 MiKTeX 临时弹窗装包。修复和编译共享同一安装的占用，繁忙时按提示稍后重试。
+
+当前 P0 尚不自动安装缺失的 LaTeX 发行版；没有 XeLaTeX 时完整 setup 返回非零，请先安装 [MiKTeX](https://miktex.org/download) 或 TeX Live 后重试。TeX Live 缺包给出人工修复指引，共享 MiKTeX 安装无法确认普通用户修复范围时会停止。`setup.cmd --editor-only` 只准备编辑环境并明确 PDF 未准备，可先运行 `start.cmd` 编辑、保存和备份。
+
+- `doctor.cmd`：只读查询依赖并执行双语编译验收，不安装宏包。
+- `repair.cmd`：修复已有 MiKTeX 的已知缺包并重新验收。
+- 上述入口都支持 `--no-pause`；Node 缺失时先运行 setup。脚本不改写个人配置或简历历史，验收使用独立临时目录，结束后清理。
+- 通过结果以资源、编译器及清单内依赖内容指纹保存在 `.runtime/environment-validation.json`。启动会重新查询和比对；模板、字体或这些依赖改变后不能复用旧结果。修复后重新启动服务更新网页提示。
 
 `.runtime/` 全目录已被 Git 忽略，下载的可执行文件、ZIP 和临时文件不得提交。不要在 runtime 中存放个人数据。Windows 也可改用两个 README 中的官方 Node MSI 手动安装方式；没有项目 runtime 时启动器接受系统 Node 22+。
 
@@ -18,7 +25,7 @@ setup 只准备 Node，并通过应用现有配置和检测确认 XeLaTeX；不�
 
 - Linux/macOS 需手动安装 Node.js 22 或更新版本。手动安装可用 `node --version` 检查；Windows portable 版本可用 `.runtime\node\node.exe --version` 检查。
 - 生成 PDF 时需要 MiKTeX 或 TeX Live 中的 XeLaTeX。安装发行版后重新打开终端，再使用已有的 XeLaTeX。仅编辑、保存和备份时可以暂时没有它。
-- 模板需要 geometry、fontspec、xeCJK、titlesec、enumitem、tabularx、graphicx、fontawesome5、hyperref、accsupp 及它们的依赖。编译器可执行不代表宏包齐全。完整发行版可减少缺失；精简安装请根据错误日志手动补齐。
+- 网页模板直接需要 article、geometry、fontspec、xeCJK、titlesec、enumitem、tabularx、array、graphicx、hyperref、accsupp 及它们的依赖；清单统一维护在 `server/environment/manifest.mjs`。原 LaTeX 手工模板还使用 fontawesome5，和网页依赖不同。未知依赖不会从日志自动转成安装参数，请人工检查模板。
 - 字体使用项目内的 Lato 和思源宋体（Source Han Serif，存放在历史名称 font/Simsun/ 下）。这些字体随源码提供，请保留 font/ 及其许可文件。
 
 本地网页不需要 make、npm 依赖、前端构建、Docker 或购买服务器。make 与 fswatch 仅用于 README 中原 LaTeX 手工编译/监控方式。当前优先验证 Windows；Linux/macOS 入口提供源码运行方式，不代表完成这些系统的运行验证。
@@ -36,7 +43,7 @@ Windows portable Node 直接入口是 `.runtime\node\node.exe server/index.mjs`�
 
 第一条会尝试打开浏览器；第二条只显示网址。默认只监听本机 127.0.0.1:3000，在浏览器打开终端打印的网址。不要把本服务当作对外共享的服务器。终端需保持运行；按 Ctrl+C 停止。启动脚本按自身目录定位项目，直接 Node 入口也按脚本路径定位配置。
 
-首次打开空数据目录会创建中文和英文虚构示例，可直接编辑。需要不同端口、数据目录或明确编译器路径时，把 `config.example.json` 复制为同目录的 `config.local.json`。例如：
+首次初始化空数据目录会创建中文和英文虚构示例，可直接编辑。初始化后删除全部简历，重启仍保持空库。需要不同端口、数据目录或明确编译器路径时，把 `config.example.json` 复制为同目录的 `config.local.json`。例如：
 
 ```json
 {
@@ -57,7 +64,9 @@ Windows portable Node 直接入口是 `.runtime\node\node.exe server/index.mjs`�
 
 ## 3. 日常编辑与 PDF
 
-简历库可新建、选择或复制简历。基本信息、教育、工作/实习经历、项目、技能、奖项、社会活动分模块编辑；支持新增、删除、上下移动及隐藏模块，隐藏保留内容。要点编辑支持普通文字、加粗和链接，不直接输入 LaTeX 命令。
+简历库可新建、选择、复制或删除简历。基本信息、教育、工作/实习经历、项目、技能、奖项、社会活动分模块编辑；支持新增、删除、上下移动及隐藏模块，隐藏保留内容。要点编辑支持普通文字、加粗和链接，不直接输入 LaTeX 命令。
+
+删除整份简历时，在简历库选中后点击“删除”，核对名称并确认。删除会移除内容、上传图片和该简历的 PDF 编译记录，未保存的修改也会丢弃，无法在页面撤销；需要保留时请先导出备份。正在编译的简历须等待结束；修订冲突时先重新载入或复制草稿。删除失败会保留当前简历及草稿，删除最后一份后可重新新建或导入备份。系统占用导致删除后文件清理失败时，残留文件不会再出现在简历库或通过 PDF/日志接口访问。
 
 停止输入约 800ms 后自动保存。可以点击“保存”立即提交；等待状态显示已保存后再关闭服务。其他页面修改同一修订时会出现冲突，本页草稿会保留，可重新载入或复制草稿后处理；不要盲目覆盖。
 
@@ -120,7 +129,8 @@ node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 
 - **Node 不存在或过旧**：Windows 运行 `setup.cmd` 准备或修复 `.runtime/node/`；手动安装方式和 Linux/macOS 请安装 Node.js 22+ 并重新打开终端。启动器提示缺失/旧版时返回非零状态，不会启动服务。setup 下载失败时检查联网和目录可写后重试；哈希不匹配时不要绕过验证。
 - **未找到 XeLaTeX**：仍可保存和备份；检查是否装有 MiKTeX/TeX Live。已安装时确认实际可执行文件，再设置 xelatexPath 并重启。网页“环境与使用帮助”提供同样入口。
-- **编译器已找到但编译失败**：检查页面显示的构建日志与错误。提示 `File '…sty' not found` 通常表示缺宏包，使用发行版管理工具手动补齐；检测只检查编译器，不探测或自动下载宏包。MiKTeX 实际编译禁止自动安装。请按自己选择的发行版处理，不需要重复安装字体。
+- **编译器已找到但编译失败**：检查页面显示的构建日志与错误。提示 `File '…sty' not found` 通常表示缺宏包；停止服务，在完整项目根目录运行 `repair.cmd`，为已有 MiKTeX 补齐清单内缺包并验收中文、英文 PDF，通过后重新运行 `start.cmd`。服务启动会检查依赖，正式简历编译禁止 MiKTeX 临时安装宏包；安装与修复集中在 setup/repair 阶段。TeX Live、未识别的依赖或无法确认权限的共享安装需按诊断使用发行版管理工具人工处理。
+- **安装 geometry 后仍报 xeCJK 缺失**：`geometry.sty` 已补齐后，编译才会继续并暴露下一个缺包；这并不表示 geometry 安装失败。`xeCJK.sty` 对应 MiKTeX 宏包名 `xecjk`。优先运行 `repair.cmd` 检查整份依赖清单；人工处理时，在 MiKTeX Console 的 Packages 中安装 `geometry`、`xecjk` 及日志提示的其他宏包，再运行 `doctor.cmd` 验收，不要删除模板中的 `\usepackage`。
 - **字体或素材缺失**：确认移动项目时保留 font/、模板与默认校徽，必要时重新获取完整源码；不要手工编辑资产 ID。
 - **端口占用**：config.local.json 修改 port 后重启，使用新网址。
 - **无法取得数据目录独占权**：先关闭同一数据目录的其他实例；更改网页 port 不能绕过此限制。若没有其他实例，可能是系统保留或其他程序占用了保护端口，按上文说明选择另一 dataDir。

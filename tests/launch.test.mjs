@@ -13,6 +13,7 @@ import { createBuildManager } from '../server/compiler/builds.mjs';
 import { finish } from './helpers/builds.mjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { acquireDataDirectory } from '../server/ownership.mjs';
+import { requiredProjectFiles } from '../server/environment/manifest.mjs';
 
 const project = fileURLToPath(new URL('../', import.meta.url));
 async function availablePort() { const s = http.createServer(); await new Promise(r => s.listen(0, '127.0.0.1', r)); const port = s.address().port; await new Promise(r => s.close(r)); return port; }
@@ -20,6 +21,8 @@ async function launchRoot(t, deferCleanup = false) {
   const temp = await mkdtemp(join(tmpdir(), 'PureCV 中文 空格-')); if (!deferCleanup) t.after(() => rm(temp, { recursive: true, force: true }));
   const root = join(temp, '项目'); await mkdir(root);
   for (const path of ['server', 'web', 'examples', 'start.cmd', 'start.sh']) await cp(join(project, path), join(root, path), { recursive: true });
+  // These startup tests exercise missing compiler handling, not resource validation.
+  for (const path of requiredProjectFiles) { const target = join(root, path); await mkdir(dirname(target), { recursive: true }); await writeFile(target, 'startup resource fixture'); }
   const port = await availablePort(); await writeFile(join(root, 'config.local.json'), JSON.stringify({ port, dataDir: '数据 目录', xelatexPath: 'missing-xelatex.exe' }));
   return { temp, root, port };
 }
@@ -29,6 +32,7 @@ test('same-port and different-port second startup cannot interrupt a live build 
   const dataDir = join(f.root, '数据 目录'); const store = await createStore({ dataDir });
   let release; const held = new Promise(resolve => release = resolve);
   const manager = createBuildManager({ config: { projectRoot: f.root, dataDir, compileTimeoutMs: 10000 }, store,
+    acquireLease: async () => ({ release: async () => {} }),
     detect: async () => ({ available: true, executable: 'controlled' }),
     prepareBuild: async ({ buildDir }) => { await held; return { cwd: buildDir, entryFile: 'resume.tex' }; },
     run: async ({ cwd }) => { await writeFile(join(cwd, 'resume.pdf'), '%PDF-test'); return { exitCode: 0, log: 'Output written on resume.pdf (1 page).' }; } });

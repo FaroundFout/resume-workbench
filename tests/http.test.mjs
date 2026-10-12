@@ -12,6 +12,16 @@ function raw(f, path, headers = {}) {
   });
 }
 
+test('compiler identity stays distinct from PDF readiness in the public environment report', async t => {
+  const f = await fixture(t, { environment: { editorReady: true, pdfReady: false, state: 'missing-packages', task: null,
+    toolchain: { executable: 'C:/private/xelatex.exe', env: { SECRET: 'private' } },
+    checks: [{ id: 'geometry.sty', status: 'failed', code: 'TEX_PACKAGE_MISSING', message: '缺少 geometry.sty' }] } });
+  const env = await (await f.request('/api/environment')).json();
+  assert.equal(env.available, true); assert.equal(env.pdfReady, false); assert.equal(env.state, 'missing-packages');
+  assert.match(env.message, /repair\.cmd/); assert.doesNotMatch(env.message, /可以编译|已就绪/);
+  assert.doesNotMatch(JSON.stringify(env), /private|SECRET|xelatex\.exe/);
+});
+
 test('cross-origin and absent-origin writes cannot alter storage', async t => {
   const f = await fixture(t);
   for (const origin of ['https://example.invalid', 'null', `http://127.0.0.1:${f.server.address().port + 1}`, undefined]) {
@@ -85,7 +95,7 @@ test('build publication gates PDFs; revision-specific PDF supports range and sta
 
 test('missing compiler exposes safe diagnostics while editing and backups remain available', async t => {
   const f = await fixture(t, { available: false, environment: { available: false, executable: 'C:/secret.exe', cause: 'C:/private/data', message: '无法执行 C:/private/compiler.exe' } });
-  const env = await (await f.request('/api/environment')).json(); assert.deepEqual(Object.keys(env).sort(), ['available', 'message']); assert.equal(env.available, false); assert.doesNotMatch(JSON.stringify(env), /private|secret|C:\//);
+  const env = await (await f.request('/api/environment')).json(); assert.deepEqual(Object.keys(env).sort(), ['available', 'checks', 'editorReady', 'message', 'pdfReady', 'state', 'task']); assert.equal(env.available, false); assert.doesNotMatch(JSON.stringify(env), /private|secret|C:\//);
   const doc = await create(f); assert.equal((await f.request(`/api/resumes/${doc.id}`, { method: 'PUT', body: { expectedRevision: 0, data: doc.data } })).status, 200);
   assert.equal((await f.request(`/api/resumes/${doc.id}/backup`)).status, 200);
   assert.equal((await f.request(`/api/resumes/${doc.id}/builds`, { method: 'POST', body: { expectedRevision: 1 } })).status, 503);

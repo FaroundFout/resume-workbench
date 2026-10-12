@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, delimiter, resolve, isAbsolute } from 'node:path';
 import { runProcess, runXeLaTeX, compilerFlavour, xelatexArguments } from '../server/compiler/process.mjs';
 import { discoverCompiler, detectCompiler } from '../server/compiler/environment.mjs';
 
@@ -73,17 +73,46 @@ test('compiler discovery probes share a total bound and stop when aborted', asyn
 });
 test('PATH discovery accepts a recognized compiler and shares its probe budget', async () => {
   const budgets = [];
+  const first = resolve('first');
+  const second = resolve('second');
   const result = await discoverCompiler({ xelatexPath: null }, {
     env: {}, commonPaths: ['first', 'second'], timeoutMs: 100,
     probe: async (executable, options) => {
       budgets.push(options.timeoutMs);
-      if (executable === 'first') { await new Promise(done => setTimeout(done, 25)); return { exitCode: 1, timedOut: false, aborted: false, log: '', flavour: null }; }
+      if (executable === first) { await new Promise(done => setTimeout(done, 25)); return { exitCode: 1, timedOut: false, aborted: false, log: '', flavour: null }; }
       return { exitCode: 0, timedOut: false, aborted: false, log: 'MiKTeX-XeTeX', flavour: 'miktex' };
     },
   });
   assert.equal(result.available, true);
-  assert.equal(result.executable, 'second');
+  assert.equal(result.executable, second);
   assert.ok(budgets[1] < budgets[0] - 15);
+});
+
+test('quoted-empty and whitespace PATH entries never trigger an implicit executable search', async () => {
+  const candidates = [];
+  const result = await discoverCompiler({ xelatexPath: null }, { env: { PATH: ['', '  ', '""', ' "  " '].join(delimiter) },
+    commonPaths: [], probe: async executable => {
+      candidates.push(executable);
+      return { exitCode: 0, timedOut: false, aborted: false, log: 'MiKTeX-XeTeX', flavour: 'miktex' };
+    } });
+  assert.equal(result.available, false);
+  assert.deepEqual(candidates, []);
+});
+
+test('quoted PATH directories are normalized before constructing absolute compiler candidates', async () => {
+  const directory = join(tmpdir(), 'Selected compiler 中文 空格 !', 'bin');
+  const executableName = process.platform === 'win32' ? 'xelatex.exe' : 'xelatex';
+  const candidates = [];
+  const result = await discoverCompiler({ projectRoot: join(tmpdir(), 'different project'), xelatexPath: null }, {
+    env: { PATH: ['""', ' "  " ', `  "${directory}"  `, ''].join(delimiter) }, commonPaths: [],
+    probe: async executable => {
+      candidates.push(executable);
+      return { exitCode: 0, timedOut: false, aborted: false, log: 'MiKTeX-XeTeX', flavour: 'miktex' };
+    },
+  });
+  assert.equal(result.executable, resolve(directory, executableName));
+  assert.equal(isAbsolute(result.executable), true);
+  assert.deepEqual(candidates, [resolve(directory, executableName)]);
 });
 test('timeout kills child-process descendants as well as the parent', async () => {
   const script = 'const {spawn}=require("node:child_process"); console.log(process.pid); const child=spawn(process.execPath,["-e","setInterval(()=>{},1000)"],{stdio:"ignore"}); console.log(child.pid); setInterval(()=>{},1000);';

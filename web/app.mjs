@@ -14,7 +14,8 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
   container.replaceChildren();
   let summaries = []; let current = null; let activeModule = 'profile'; let mounted = null; let disposed = false; let opening = 0;
   const drafts = new Map(); const controllers = new Map(); const states = new Map(); const statuses = new Map();
-  let preview = null; let pendingSwitch = null; let compiling = false; let compilingResumeId = null; let environment = null;
+  let preview = null; let pendingSwitch = null; let compiling = false; let compilingResumeId = null; let deleting = false; let importing = false; let creating = false; let environment = null;
+  const libraryBusy = () => deleting || importing || creating;
   const header = element('header', 'app-header');
   const brand = element('div', 'brand'); brand.append(element('span', 'brand-mark', 'R'), element('strong', 'wordmark', 'Resume Workbench'), element('span', 'local-tag', '简历工作台')); header.append(brand);
   const title = element('label', 'document-title'); title.append(element('span', 'sr-only', '简历名称'));
@@ -37,7 +38,8 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
   const library = element('select'); library.setAttribute('aria-label', '选择简历'); libraryLabel.append(library); sidebar.append(libraryLabel);
   const libraryActions = element('div', 'library-actions');
   const create = button('＋ 新建', () => showDocumentDialog('create')); const copy = button('复制', () => showDocumentDialog('copy'), true);
-  libraryActions.append(create, copy); sidebar.append(libraryActions);
+  const remove = button('删除', showDeleteDialog, true); remove.id = 'delete-button'; remove.className = 'danger'; remove.setAttribute('aria-label', '删除当前简历');
+  libraryActions.append(create, copy, remove); sidebar.append(libraryActions);
   const transfer = element('div', 'transfer-actions');
   const backup = button('导出备份', exportCurrent, true); backup.id = 'backup-button';
   const importButton = button('导入备份', () => importFile.click()); importButton.id = 'import-button';
@@ -58,6 +60,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
   const preparation = element('p', 'build-preparation', '正在更新预览 · 等待最新保存并提交编译…'); preparation.id = 'build-preparation'; preparation.setAttribute('role', 'status'); preparation.hidden = true;
   const previewHost = element('div', 'preview-host'); previewPanel.append(preparation, previewHost);
   const dialog = element('dialog', 'document-dialog'); dialog.setAttribute('aria-label', '创建或复制简历'); container.append(dialog);
+  dialog.addEventListener('cancel', event => { if (deleting || creating) event.preventDefault(); });
 
   function setPane(view) {
     panes.dataset.pane = view;
@@ -70,7 +73,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
   });
   function error(cause) { alert.textContent = cause.message || '操作失败，请重试'; alert.hidden = false; }
   function emit() {
-    if (!current) return;
+    if (!current || deleting) return;
     current.dirty = true; drafts.set(current.id, current);
     states.get(current.id).setDraft(current.data, { name: current.name });
     controllers.get(current.id).edit(current.data, { name: current.name }); preview?.setDirty(true);
@@ -81,9 +84,13 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     saveStatus.dataset.state = status?.state || 'saved'; saveStatus.textContent = status ? labels[status.state] : current ? labels.saved : '选择简历后自动保存';
     revision.textContent = current ? `内容修订 ${current.revision}` : '本机文件 · 无云端传输';
     recovery.hidden = !status || !['conflict', 'error'].includes(status.state); keep.hidden = discard.hidden = !pendingSwitch;
-    save.disabled = !current || status?.state === 'conflict';
-    compile.disabled = !current || compiling || current.latestBuild?.status === 'running' || status?.state === 'conflict' || environment?.available === false;
-    backup.disabled = !current || status?.state === 'conflict';
+    save.disabled = !current || deleting || status?.state === 'conflict';
+    compile.disabled = !current || deleting || compiling || current.latestBuild?.status === 'running' || status?.state === 'conflict' || environment?.available === false;
+    backup.disabled = !current || deleting || status?.state === 'conflict';
+    remove.disabled = !current || libraryBusy() || (compiling && compilingResumeId === current.id) || current.latestBuild?.status === 'running' || status?.state === 'conflict';
+    create.disabled = importButton.disabled = libraryBusy(); copy.disabled = !current || libraryBusy();
+    name.disabled = !current || deleting; library.disabled = !summaries.length || libraryBusy(); formHost.inert = deleting;
+    for (const item of nav.children) item.disabled = !current || deleting;
     preparation.hidden = !compiling || current?.id !== compilingResumeId || current?.latestBuild?.status === 'running';
   }
   function attachDocument(doc) {
@@ -107,7 +114,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     return saved;
   }
   async function updatePreview() {
-    const doc = current; if (!doc || compiling || doc.latestBuild?.status === 'running') return;
+    const doc = current; if (!doc || deleting || compiling || doc.latestBuild?.status === 'running') return;
     compiling = true; compilingResumeId = doc.id; renderStatus(); alert.hidden = true;
     try {
       const saved = await flushCurrent(doc); if (disposed) return;
@@ -118,7 +125,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     finally { compiling = false; compilingResumeId = null; if (!disposed) renderStatus(); }
   }
   async function exportCurrent() {
-    const doc = current; if (!doc) return;
+    const doc = current; if (!doc || deleting) return;
     try {
       await flushCurrent(doc); if (disposed) return;
       // Same-origin attachment keeps the strict CSP and avoids browser-specific blob navigation.
@@ -126,30 +133,31 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     } catch (cause) { if (!disposed) error(cause); }
   }
   async function importSelected() {
+    if (libraryBusy()) return;
     const file = importFile.files?.[0]; importFile.value = ''; if (!file) return;
     if (file.size > 10 * 1024 * 1024) { error({ message: '备份文件不能超过 10 MiB' }); return; }
-    importButton.disabled = true;
+    importing = true; renderStatus();
     try {
       await flushCurrent(); if (disposed) return;
       const doc = await api.importBackup(file); if (disposed) return;
       summaries = await api.list(); if (disposed) return;
       attachDocument(doc); await openResume(doc.id);
     } catch (cause) { if (!disposed) error(cause); }
-    finally { if (!disposed) importButton.disabled = false; }
+    finally { importing = false; if (!disposed) renderStatus(); }
   }
   name.addEventListener('input', () => { if (current) { current.name = name.value; emit(); } });
   function renderLibrary() {
     library.replaceChildren();
     if (!summaries.length) { const option = element('option', '', '尚无简历'); option.value = ''; library.append(option); }
     for (const summary of summaries) { const option = element('option', '', `${summary.name} · ${summary.language === 'en' ? 'EN' : '中文'}`); option.value = summary.id; library.append(option); }
-    library.value = current?.id || summaries[0]?.id || ''; library.disabled = !summaries.length;
+    library.value = current?.id || summaries[0]?.id || ''; library.disabled = !summaries.length || libraryBusy();
   }
   function renderNav() {
     nav.replaceChildren();
     const order = current ? ['profile', ...current.data.sectionOrder, 'layout', 'logo'] : Object.keys(modules);
     for (const key of order) {
       const [label, number] = modules[key]; const node = button('', () => { activeModule = key; renderModule(); renderNav(); });
-      node.append(element('span', 'nav-number', number), element('span', 'nav-label', label)); node.disabled = !current;
+      node.append(element('span', 'nav-number', number), element('span', 'nav-label', label)); node.disabled = !current || deleting;
       if (current?.data.sections[key] && !current.data.sections[key].enabled) node.append(element('span', 'hidden-tag', '隐藏'));
       if (key === activeModule) node.setAttribute('aria-current', 'step'); nav.append(node);
     }
@@ -180,7 +188,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     renderLibrary(); renderNav(); renderModule();
   }
   async function openResume(id, { keepDraft = false, discardDraft = false, reload: reread = false } = {}) {
-    if (!id || disposed) return false;
+    if (!id || disposed || deleting || creating) return false;
     const token = ++opening;
     try {
       if (current && !keepDraft && !discardDraft) await flushCurrent();
@@ -193,7 +201,36 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     } catch (cause) { if (!disposed && token === opening) { pendingSwitch = id !== current?.id ? id : null; error(cause); renderStatus(); renderLibrary(); } return false; }
   }
   library.addEventListener('change', () => openResume(library.value));
+  function showDeleteDialog() {
+    if (!current || remove.disabled) return;
+    const doc = current;
+    dialog.replaceChildren(); dialog.setAttribute('aria-label', '删除当前简历');
+    const form = element('form'); form.append(element('h2', '', '删除这份简历？'));
+    form.append(element('p', 'muted', `将删除“${doc.name}”的内容、上传图片及 PDF 编译记录，未保存的修改也会丢弃。此操作无法撤销，需要保留时请先取消并导出备份。`));
+    const failure = element('p', 'field-error'); failure.setAttribute('role', 'alert'); form.append(failure);
+    const actions = element('div', 'dialog-actions'); const cancel = button('取消', () => dialog.close());
+    const submit = element('button', 'danger', '确认删除'); submit.type = 'submit'; actions.append(cancel, submit); form.append(actions);
+    form.addEventListener('submit', async event => {
+      event.preventDefault(); if (deleting || disposed || current?.id !== doc.id) return;
+      deleting = true; ++opening; cancel.disabled = submit.disabled = true; failure.textContent = ''; renderStatus();
+      try {
+        const saved = await controllers.get(doc.id).pause(); if (disposed) return;
+        await api.remove(doc.id, { expectedRevision: saved.revision }); if (disposed) return;
+        controllers.get(doc.id).destroy(); controllers.delete(doc.id); states.delete(doc.id); statuses.delete(doc.id); drafts.delete(doc.id);
+        summaries = summaries.filter(item => item.id !== doc.id); current = null; pendingSwitch = null; activeModule = 'profile'; alert.hidden = true;
+        dialog.close(); deleting = false; renderDocument();
+        if (summaries.length) await openResume(summaries[0].id);
+      } catch (cause) {
+        if (!disposed) { failure.textContent = cause.message || '删除失败，简历和本页草稿已保留，请重试'; controllers.get(doc.id)?.resume(cause); }
+      } finally {
+        deleting = false; cancel.disabled = submit.disabled = false;
+        if (!disposed) { renderStatus(); renderLibrary(); }
+      }
+    });
+    dialog.append(form); dialog.showModal(); cancel.focus();
+  }
   function showDocumentDialog(mode) {
+    if (libraryBusy()) return;
     dialog.setAttribute('aria-label', '创建或复制简历');
     dialog.replaceChildren(); const form = element('form'); const heading = element('h2', '', mode === 'copy' ? '复制为独立简历' : '创建一份简历'); form.append(heading);
     form.append(element('p', 'muted', mode === 'copy' ? '复制当前内容和校徽，选择语言后独立修改。' : '选择内容语言。中文自动使用 A4，英文自动使用 Letter。'));
@@ -201,16 +238,17 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     const nameInput = field(form, '简历名称', documentName, value => { documentName = value; }); nameInput.required = true;
     field(form, '简历语言', documentLanguage, value => { documentLanguage = value; }, { options: [['zh-CN', '中文 · A4'], ['en', 'English · Letter']] });
     const failure = element('p', 'field-error'); failure.setAttribute('role', 'alert'); form.append(failure);
-    const actions = element('div', 'dialog-actions'); actions.append(button('取消', () => dialog.close())); const submit = element('button', 'primary', mode === 'copy' ? '创建副本' : '开始编辑'); submit.type = 'submit'; actions.append(submit); form.append(actions);
+    const actions = element('div', 'dialog-actions'); const cancel = button('取消', () => { if (!creating) dialog.close(); }); actions.append(cancel); const submit = element('button', 'primary', mode === 'copy' ? '创建副本' : '开始编辑'); submit.type = 'submit'; actions.append(submit); form.append(actions);
     form.addEventListener('submit', async event => {
-      event.preventDefault(); if (!documentName.trim()) { failure.textContent = '请填写简历名称'; return; } submit.disabled = true;
+      event.preventDefault(); if (libraryBusy()) return; if (!documentName.trim()) { failure.textContent = '请填写简历名称'; return; }
+      creating = true; cancel.disabled = submit.disabled = true; renderStatus();
       try {
         const source = current; const conflictCopy = mode === 'copy' && statuses.get(source.id)?.state === 'conflict';
         if (!conflictCopy) await flushCurrent(source); if (disposed) return;
         const doc = mode === 'copy' ? await api.copy(source.id, { name: documentName, language: documentLanguage, draft: controllers.get(source.id).readDraft() }) : await api.create({ name: documentName, language: documentLanguage });
         if (disposed) return; summaries = await api.list(); if (disposed) return;
         attachDocument(doc); current = doc; ++opening; pendingSwitch = null; activeModule = 'profile'; alert.hidden = true; dialog.close(); renderDocument();
-      } catch (cause) { failure.textContent = cause.message || '创建失败，请重试'; } finally { submit.disabled = false; }
+      } catch (cause) { failure.textContent = cause.message || '创建失败，请重试'; } finally { creating = false; cancel.disabled = submit.disabled = false; if (!disposed) renderStatus(); }
     });
     dialog.append(form); dialog.showModal(); nameInput.focus(); nameInput.select();
   }
@@ -219,9 +257,9 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     dialog.append(element('h2', '', '环境与使用帮助'));
     for (const text of [
       'Windows 首次运行 setup.cmd，再运行 start.cmd。setup 首次需要联网，自动准备 .runtime/node 中的项目专用 Node，无需管理员权限或预装系统 Node，也不会修改系统 PATH。Linux/macOS 需要手动安装 Node.js 22 或更新版本。',
-      '生成 PDF 还需要安装包含 XeLaTeX 的 MiKTeX 或 TeX Live；未找到编译器时，仍可编辑、保存和备份。找到 XeLaTeX 只确认编译器身份，首次 PDF 编译才验证宏包是否齐全；setup 不安装编译器或宏包，MiKTeX 官方入口为 https://miktex.org/download。',
+      '生成 PDF 需要包含 XeLaTeX 的 MiKTeX 或 TeX Live。setup 会检查项目字体、模板和宏包，尝试为已有 MiKTeX 补齐已知缺包；中文和英文样例实际编译通过才报告完整安装成功。尚无编译器时请先安装，MiKTeX 官方入口为 https://miktex.org/download。',
       '启动时会检测已有编译器。若已安装却未找到，请把 config.example.json 复制为项目根目录的 config.local.json，设置 xelatexPath 为完整的 xelatex.exe（其他系统为 xelatex）路径，再重新启动服务。Windows JSON 路径建议使用正斜杠。',
-      '如果编译日志提示缺少 .sty 宏包，请通过发行版管理工具手动补齐，或安装完整发行版后重试。本程序不会自动安装宏包。',
+      '运行 doctor.cmd 可只验收、不安装宏包；运行 repair.cmd 可补齐已有 MiKTeX 的已知依赖并重新验收。TeX Live 缺包需人工补齐。完成后重新启动服务更新环境提示。setup.cmd --editor-only 只准备编辑环境，PDF 未准备时仍可编辑、保存和备份。',
       '内容停止输入后约 800ms 自动保存；更新预览需要手动点击，按钮会等待最新内容保存。编译失败时保留上次成功 PDF，下载前检查修订提示。',
       '中文与英文各自保存。复制为另一种语言只更换模板与自动纸张，内容需要手动翻译；自动纸张为中文 A4、英文 Letter。',
       '校徽可使用默认图片、隐藏或上传 PNG/JPG（最大 5MiB）；宽度 1.2–3.2cm，高度最多 3.2cm。导出备份包含内容、版式和校徽，换机后用导入备份恢复。详细说明见项目 docs/local-editor.md。',
@@ -232,7 +270,7 @@ export function mountWorkspace(container, { api = createApi(), onDraftChange = (
     try { summaries = await api.list(); if (disposed) return; renderLibrary(); if (summaries.length) await openResume(summaries[0].id); }
     catch (cause) { if (!disposed) error(cause); }
   }
-  if (api.environment) api.environment().then(value => { if (!disposed) { environment = value; environmentStatus.textContent = value.available ? 'XeLaTeX 可用' : value.message; renderStatus(); } }).catch(cause => { if (!disposed) environmentStatus.textContent = cause.message || '编译环境暂时无法查询'; });
+  if (api.environment) api.environment().then(value => { if (!disposed) { environment = value; environmentStatus.textContent = value.message || (value.pdfReady ? 'PDF 已就绪' : 'PDF 环境待验收，请运行 doctor.cmd 后重新启动。'); renderStatus(); } }).catch(cause => { if (!disposed) environmentStatus.textContent = cause.message || '编译环境暂时无法查询'; });
   else environmentStatus.textContent = '编译环境由本地服务检测';
   setPane('edit'); renderDocument(); start();
   return { openResume, getDraft() { return current ? structuredClone({ resumeId: current.id, name: current.name, revision: current.revision, data: current.data }) : null; }, destroy() { disposed = true; ++opening; mounted?.destroy(); preview?.destroy(); for (const controller of controllers.values()) controller.destroy(); if (dialog.open) dialog.close(); container.replaceChildren(); } };

@@ -4,11 +4,11 @@ import { createHash } from 'node:crypto';
 import { validateResumeData } from '../../web/shared/model.mjs';
 import { AppError } from '../errors.mjs';
 import { renderResume } from './render.mjs';
+import { requiredFonts } from '../environment/manifest.mjs';
 
-const FONTS = ['Lato/Lato-Regular.ttf', 'Lato/Lato-Bold.ttf', 'Lato/Lato-Italic.ttf', 'Lato/Lato-BoldItalic.ttf', 'Simsun/SourceHanSerifCN-Regular.ttf', 'Simsun/SourceHanSerifCN-Bold.ttf'];
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 async function cachedFonts(projectRoot, cacheDir, signal) {
-  for (const name of FONTS) {
+  for (const name of requiredFonts) {
     signal?.throwIfAborted();
     const source = await readFile(join(projectRoot, 'font', name), { signal });
     const target = join(cacheDir, name);

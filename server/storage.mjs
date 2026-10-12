@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, relative, isAbsolute } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createEmptyData, validateResumeData } from '../web/shared/model.mjs';
 import { inspectImage } from './assets.mjs';
@@ -196,8 +196,11 @@ export async function createStore({ dataDir }) {
   }
   async function list() {
     const ids = (await readdir(resumesDir, { withFileTypes: true })).filter(x => x.isDirectory() && ID.test(x.name)).map(x => x.name);
-    const docs = await Promise.all(ids.map(read));
-    return docs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+    const docs = await Promise.all(ids.map(async id => {
+      try { return await read(id); }
+      catch (error) { if (error.code === 'NOT_FOUND') return null; throw error; }
+    }));
+    return docs.filter(Boolean).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
   }
   async function writeAsset(resumeId, bytes) {
     assertId(resumeId);
@@ -213,7 +216,11 @@ export async function createStore({ dataDir }) {
   async function readBuild(id) {
     const record = await readJson(join(buildDirectory(id), 'record.json'));
     if (record.id !== id) throw new AppError('CORRUPT_DATA', '本地构建记录损坏', 500);
-    return validBuild(record);
+    const value = validBuild(record);
+    // Cleanup can be denied after a resume's atomic removal. Such leftover
+    // records must never make its old PDF or log reachable through the API.
+    await read(value.resumeId);
+    return value;
   }
   async function allBuilds() {
     const ids = (await readdir(buildsDir, { withFileTypes: true })).filter(x => x.isDirectory() && ID.test(x.name)).map(x => x.name);
@@ -275,6 +282,37 @@ export async function createStore({ dataDir }) {
       }
     });
   }
-  return { dataDir, list, create, read, save, copy, capture, registerBuild, readBuild, publishBuild,
+  async function remove(id, { expectedRevision }) {
+    assertId(id);
+    assertRevision(expectedRevision);
+    return serial(id, async () => {
+      const doc = await read(id);
+      checkRevision(doc, expectedRevision);
+      const records = (await allBuilds()).filter(record => record.resumeId === id);
+      if (records.some(record => record.status === 'running')) {
+        throw new AppError('RESUME_BUSY', '这份简历正在编译，请完成后再删除', 409);
+      }
+      function contained(parent, path) {
+        const target = resolve(path);
+        const child = relative(parent, target);
+        if (!child || child.startsWith('..') || isAbsolute(child)) throw validation('删除目录超出本地数据范围');
+        return target;
+      }
+      const directory = contained(resumesDir, resumeDirectory(id));
+      const removed = contained(resumesDir, join(resumesDir, `.deleted-${id}-${randomUUID()}`));
+      const buildDirectories = records.map(record => contained(buildsDir, buildDirectory(record.id)));
+      // Renaming is the commit: a lock failure leaves the complete visible
+      // record intact. Ignored staging also prevents startup/list resurrection.
+      await renameWithRetry(directory, removed);
+      // A Windows share lock may still deny cleanup. Removal is already committed;
+      // retain inaccessible leftovers rather than restore partially removed data.
+      for (const path of [...buildDirectories, removed]) {
+        try { await rm(path, { recursive: true, force: true, maxRetries: 2, retryDelay: 30 }); }
+        catch { /* A later local cleanup may remove these committed leftovers. */ }
+      }
+      return { id, deleted: true };
+    });
+  }
+  return { dataDir, list, create, read, save, copy, remove, capture, registerBuild, readBuild, publishBuild,
     latestSuccessfulBuild, recoverBuilds, pruneBuilds, assetPath, buildDirectory, writeAsset, readOwnedAsset, createWithAsset };
 }

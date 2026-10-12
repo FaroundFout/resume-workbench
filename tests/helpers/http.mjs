@@ -11,6 +11,7 @@ export async function createHttpFixture({ available = true, environment, prepare
   const config = { projectRoot: fileURLToPath(new URL('../../', import.meta.url)), dataDir, port: 0, compileTimeoutMs: 5000 };
   const store = await createStore(config);
   const builds = createBuildManager({ config, store,
+    acquireLease: async () => ({ release: async () => {} }),
     detect: async () => ({ available, executable: 'controlled-compiler', message: '缺少编译器，仍可保存。' }),
     prepareBuild: async ({ buildDir, snapshot }) => {
       if (prepareGate) await prepareGate;
@@ -19,7 +20,9 @@ export async function createHttpFixture({ available = true, environment, prepare
     },
     run: async () => ({ exitCode: 0, log: 'Output written on resume.pdf (1 page).', aborted: false, timedOut: false }),
   });
-  const server = createApp({ config, store, builds, environment: environment ?? { available, message: '编译器诊断', executable: 'C:/private/compiler.exe' } });
+  const server = createApp({ config, store, builds, environment: environment ?? { editorReady: true, pdfReady: false,
+    state: available ? 'verification-required' : 'missing-compiler', checks: [], task: null,
+    toolchain: available ? { executable: 'C:/private/compiler.exe' } : null } });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const url = `http://127.0.0.1:${server.address().port}`;
   return { url, server, store, builds,

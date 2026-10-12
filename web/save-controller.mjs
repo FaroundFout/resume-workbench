@@ -1,13 +1,14 @@
 /** Serial optimistic saves. Optional edit(data, {name}) saves the title atomically. */
 export function createSaveController({ api, resumeId, initial, onStatus = () => {}, debounceMs = 800 }) {
   let saved = structuredClone(initial); let draft = structuredClone(initial.data); let name = initial.name;
-  let version = 0; let savedVersion = 0; let timer = null; let pending = null; let disposed = false; let conflict = null;
+  let version = 0; let savedVersion = 0; let timer = null; let pending = null; let disposed = false; let paused = false; let conflict = null;
   const closed = () => ({ code: 'CONTROLLER_CLOSED', message: '编辑器已关闭', status: 0 });
   const status = (state, error) => { if (!disposed) onStatus({ state, revision: saved.revision, ...(error ? { error } : {}) }); };
   const clear = () => { if (timer !== null) clearTimeout(timer); timer = null; };
   function start() {
     if (pending) return pending;
     if (disposed) return Promise.reject(closed());
+    if (paused) return Promise.reject({ code: 'CONTROLLER_PAUSED', message: '正在删除简历，保存已暂停', status: 0 });
     if (conflict) return Promise.reject(conflict);
     if (version === savedVersion) return Promise.resolve(structuredClone(saved));
     const sentVersion = version; const payload = { expectedRevision: saved.revision, name, data: structuredClone(draft) };
@@ -27,7 +28,8 @@ export function createSaveController({ api, resumeId, initial, onStatus = () => 
     return pending;
   }
   async function automatic() {
-    try { await start(); if (!disposed && !conflict && timer === null && version !== savedVersion) await automatic(); }
+    if (disposed || paused) return;
+    try { await start(); if (!disposed && !paused && !conflict && timer === null && version !== savedVersion) await automatic(); }
     catch { /* Status reports failures. Explicit save retries errors; conflicts require reload/copy. */ }
   }
   return {
@@ -35,7 +37,7 @@ export function createSaveController({ api, resumeId, initial, onStatus = () => 
       if (disposed) return;
       draft = structuredClone(data); if (options.name !== undefined) name = options.name; version++;
       status(conflict ? 'conflict' : 'dirty', conflict); clear();
-      if (!conflict) timer = setTimeout(() => { timer = null; automatic(); }, debounceMs);
+      if (!paused && !conflict) timer = setTimeout(() => { timer = null; automatic(); }, debounceMs);
     },
     async flush() {
       clear(); if (disposed) throw closed(); if (conflict) throw conflict;
@@ -43,6 +45,20 @@ export function createSaveController({ api, resumeId, initial, onStatus = () => 
       return structuredClone(saved);
     },
     readDraft() { return structuredClone(draft); },
+    // Deletion discards queued edits, but must await any write already sent so
+    // its revision check uses the last acknowledged save. Failure keeps drafts.
+    async pause() {
+      paused = true; clear();
+      if (pending) { try { await pending; } catch { /* A stale/unknown revision is still checked by DELETE. */ } }
+      if (disposed) throw closed();
+      return structuredClone(saved);
+    },
+    resume(error) {
+      if (disposed) return;
+      paused = false;
+      if (error?.code === 'REVISION_CONFLICT') { conflict = error; status('conflict', error); return; }
+      if (!conflict && version !== savedVersion && timer === null) timer = setTimeout(() => { timer = null; automatic(); }, debounceMs);
+    },
     destroy() { disposed = true; clear(); },
   };
 }

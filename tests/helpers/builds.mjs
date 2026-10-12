@@ -30,7 +30,7 @@ export async function createBuildFixture(options = {}) {
     await writeFile(join(buildDir, 'resume.tex'), snapshot.data.profile.name || 'first');
     return { cwd: buildDir, entryFile: 'resume.tex' };
   };
-  const manager = createBuildManager({ store, prepareBuild, run, detect: async () => ({ available: true, executable: 'controlled-compiler', message: 'ready' }), ...options, config });
+  const manager = createBuildManager({ store, prepareBuild, run, acquireLease: async () => ({ release: async () => {} }), detect: async () => ({ available: true, executable: 'controlled-compiler', message: 'ready' }), ...options, config });
   return { dataDir, store, doc, config, manager,
     async submitAndFinish({ outcome: selected = 'succeeded', text = '%PDF-first' } = {}) {
       outcome = selected;

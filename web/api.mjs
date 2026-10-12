@@ -25,6 +25,7 @@ export function createApi(baseUrl = '') {
     create: payload => request('/api/resumes', { method: 'POST', json: payload }),
     read: value => request(resume(value)),
     save: (value, payload) => request(resume(value), { method: 'PUT', json: payload }),
+    remove: (value, payload) => request(resume(value), { method: 'DELETE', json: payload }),
     copy: (value, payload) => request(`${resume(value)}/copy`, { method: 'POST', json: payload }),
     uploadAsset: (value, file) => request(`${resume(value)}/assets`, { method: 'POST', blob: file }),
     backup: value => request(`${resume(value)}/backup`, { output: 'blob' }),

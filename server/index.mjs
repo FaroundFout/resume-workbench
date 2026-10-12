@@ -1,14 +1,51 @@
-import { readFile } from 'node:fs/promises';
+import { open, readFile, rename, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { loadConfig } from './config.mjs';
 import { createStore } from './storage.mjs';
-import { detectCompiler } from './compiler/environment.mjs';
+import { inspectEnvironment } from './environment/check.mjs';
+import { applyEnvironmentRecord } from './environment/record.mjs';
+import { environmentMessage } from './environment/diagnostics.mjs';
 import { createBuildManager } from './compiler/builds.mjs';
 import { createApp } from './app.mjs';
 import { AppError } from './errors.mjs';
 import { acquireDataDirectory } from './ownership.mjs';
+
+async function initializeLibrary(config, store) {
+  const marker = join(config.dataDir, '.library-initialized');
+  try { await readFile(marker); return; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if ((await store.list()).length === 0) {
+    const examples = await Promise.all([
+      ['zh-CN', 'resume.zh.json', '中文虚构示例'], ['en', 'resume.en.json', 'English fictional example'],
+    ].map(async ([language, file, name]) => ({ name, language,
+      seed: JSON.parse(await readFile(join(config.projectRoot, 'examples', file), 'utf8')) })));
+    const created = [];
+    try {
+      for (const example of examples) created.push((await store.create(example)).id);
+    } catch (cause) {
+      // Only UUIDs returned by successful creations in this empty library are ours.
+      await Promise.allSettled(created.filter(id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+        .map(id => rm(join(config.dataDir, 'resumes', id), { recursive: true, force: true })));
+      throw cause;
+    }
+  }
+  const temporary = `${marker}.${randomUUID()}.tmp`;
+  let handle;
+  try {
+    handle = await open(temporary, 'wx');
+    await handle.writeFile('1\n');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await rename(temporary, marker);
+  } finally {
+    if (handle) await handle.close();
+    await rm(temporary, { force: true });
+  }
+}
 
 function openUrl(url) {
   return new Promise((resolveOpen, reject) => {
@@ -26,12 +63,8 @@ export async function startServer(projectRoot, { openBrowser = true } = {}) {
   let environment;
   try {
     const store = await createStore(config);
-    if ((await store.list()).length === 0) {
-      for (const [language, file, name] of [['zh-CN', 'resume.zh.json', '中文虚构示例'], ['en', 'resume.en.json', 'English fictional example']]) {
-        await store.create({ name, language, seed: JSON.parse(await readFile(join(config.projectRoot, 'examples', file), 'utf8')) });
-      }
-    }
-    environment = await detectCompiler(config);
+    await initializeLibrary(config, store);
+    environment = await applyEnvironmentRecord(projectRoot, await inspectEnvironment(config));
     builds = createBuildManager({ config, store });
     await builds.recover();
     server = createApp({ config, store, builds, environment });
@@ -54,8 +87,7 @@ export async function startServer(projectRoot, { openBrowser = true } = {}) {
   process.once('SIGINT', stop); process.once('SIGTERM', stop);
   const url = `http://127.0.0.1:${config.port}`;
   console.log(`Resume Workbench: ${url}`);
-  console.log(environment.available ? 'XeLaTeX 可用；编辑后点击“更新预览”生成 PDF。'
-    : '未找到可用的 XeLaTeX；仍可编辑、保存和备份。安装 MiKTeX/TeX Live，或在 config.local.json 设置 xelatexPath 后重新启动。');
+  console.log(environmentMessage(environment));
   console.log('使用与环境说明：docs/local-editor.md；网页侧栏可打开“环境与使用帮助”。');
   if (openBrowser) {
     try { await openUrl(url); } catch { console.error(`无法自动打开浏览器，请手动访问 ${url}`); }

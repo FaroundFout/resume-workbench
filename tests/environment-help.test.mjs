@@ -24,3 +24,16 @@ test('missing compiler has an accessible help entry that explains setup while ed
   const close = dialog.all().find(node => node.tagName === 'button' && node.textContent === '知道了');
   await close.click(); assert.equal(dialog.open, false);
 });
+
+test('finding a compiler without PDF verification does not display a ready claim', async t => {
+  const host = installDom(t);
+  const { mountWorkspace } = await import('../web/app.mjs');
+  const workspace = mountWorkspace(host, { api: { list: async () => [],
+    environment: async () => ({ available: true, editorReady: true, pdfReady: false,
+      state: 'missing-packages', message: '缺少宏包，请运行 repair.cmd 后重新启动。', checks: [], task: null }) } });
+  t.after(() => workspace.destroy());
+  await new Promise(resolve => setImmediate(resolve));
+  const status = host.all().find(node => node.className === 'environment-status');
+  assert.match(status.textContent, /repair\.cmd/);
+  assert.doesNotMatch(status.textContent, /XeLaTeX 可用|PDF 已就绪/);
+});

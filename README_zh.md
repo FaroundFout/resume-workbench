@@ -15,7 +15,9 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
 
 1. 克隆或下载完整项目，放在可写目录。双击 **`setup.cmd`**，或在 PowerShell 运行 `.\setup.cmd`。脚本用 Windows PowerShell 5.1 下载原生 x64 或 ARM64 Windows 的官方 portable Node，校验哈希、版本与架构；其他架构会明确拒绝。
 2. 阅读准备结果，再双击 **`start.cmd`**，或运行 `.\start.cmd`。setup 不会自动启动服务。自动化可用 `setup.cmd --no-pause`；正常双击窗口会等待按键，便于看清结果。
-3. setup 按编辑器现有配置与检测规则检查 XeLaTeX。缺失时仍可编辑、保存和备份；需要 PDF 时安装 [MiKTeX](https://miktex.org/download) 或 TeX Live，步骤见[详细说明](docs/local-editor.md)。**找到 XeLaTeX 仅确认编译器身份，首次 PDF 编译才验证宏包是否齐全。** setup 不安装编译器/宏包，也不写本地配置。
+3. setup 检查项目资源和 XeLaTeX，为已有 MiKTeX 补齐清单内缺包，再编译真实中文和英文样例。**两种语言都通过才报告完整安装成功，否则返回非零。** 尚无编译器时先安装 [MiKTeX](https://miktex.org/download) 或 TeX Live；当前不自动安装发行版，不改写本地配置。可用 `setup.cmd --editor-only` 只准备编辑环境，详见[指南](docs/local-editor.md)。
+
+`doctor.cmd` 只验收双语 PDF，不装宏包；`repair.cmd` 修复已有 MiKTeX 的已知缺包并验收。二者支持 `--no-pause`，完成后重新启动服务。TeX Live 缺包需人工补齐。
 
 `start.cmd` 优先使用项目 `.runtime/node/node.exe`，即使电脑已有旧版 Node 也不会冲突。启动时的 PATH 调整仅作用于当前进程及其子进程。`.runtime/` 已被 Git 忽略，下载运行环境、ZIP 与临时文件不能提交；runtime 损坏或版本错误时重新运行 setup 修复。下载或验证失败会保留已有 runtime。无需系统 Node、管理员权限或全局安装修改。
 
@@ -54,7 +56,7 @@ Resume Workbench（简历工作台）保留原来的 XeLaTeX 简历模板，并�
 
 同一数据目录只允许一个服务实例，使用不同网页端口也不能同时打开。重启或更新前先停止已有服务；独占保护及少见的系统占用冲突见[详细说明](docs/local-editor.md)。
 
-服务启动时检测 PATH 与常见安装目录中的 XeLaTeX。已安装却检测失败时，将 `config.example.json` 复制为 `config.local.json`，设置 `xelatexPath` 为完整可执行文件路径，然后重启。Windows 的 JSON 路径可使用正斜杠。缺少编译器仍可编辑、保存和备份；缺少宏包时需通过发行版管理工具手动安装，本程序不会自动安装宏包。准备、配置与故障排查见[详细说明](docs/local-editor.md)。
+服务启动时只读检测项目资源、PATH 与常见安装目录中的 XeLaTeX 及依赖，并核对上次双语验收指纹。已安装却检测失败时，将 `config.example.json` 复制为 `config.local.json`，设置 `xelatexPath` 为完整可执行文件路径，然后运行 `doctor.cmd` 并重启。Windows JSON 路径可使用正斜杠。缺少编译器仍可编辑、保存和备份；MiKTeX 已知缺包可运行 `repair.cmd`。准备、配置与故障排查见[详细说明](docs/local-editor.md)。
 
 当前优先验证 Windows；提供 Linux/macOS 源码入口，尚未宣称在这些系统完成运行验证。
 

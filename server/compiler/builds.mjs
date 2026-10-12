@@ -6,6 +6,7 @@ import { AppError } from '../errors.mjs';
 import { prepareBuild as defaultPrepareBuild } from '../latex/resources.mjs';
 import { detectCompiler } from './environment.mjs';
 import { runXeLaTeX } from './process.mjs';
+import { acquireEnvironmentLease } from '../environment/lease.mjs';
 
 const error = (code, message, status = 500) => new AppError(code, message, status);
 async function validatePdf(path) {
@@ -19,11 +20,13 @@ async function validatePdf(path) {
   } finally { await handle.close(); }
 }
 /** One service owns one manager; detect is an optional internal collaborator. */
-export function createBuildManager({ config, store, prepareBuild = defaultPrepareBuild, run = runXeLaTeX, detect = detectCompiler }) {
+export function createBuildManager({ config, store, prepareBuild = defaultPrepareBuild, run = runXeLaTeX, detect = detectCompiler,
+  acquireLease = acquireEnvironmentLease }) {
   let active = null;
   let closed = false;
   let lastCreatedAt = 0;
   const persistenceFailures = new Map();
+  const deleting = new Set();
   const remaining = slot => slot.deadline - performance.now();
   const stopped = slot => slot.stopReason === 'timeout' ? 'timed_out' : 'interrupted';
   const cancellationError = slot => slot.stopReason === 'timeout'
@@ -49,7 +52,7 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
     });
   }
   const buildPath = (id, file) => join(store.buildDirectory(id), file);
-  async function execute(slot, record, snapshot, executable) {
+  async function execute(slot, record, snapshot, executable, env) {
     let status = 'failed';
     let failure = null;
     let log = '';
@@ -64,7 +67,7 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
       for (let pass = 1; pass <= 2; pass++) {
         if (slot.controller.signal.aborted) { status = stopped(slot); break; }
         if (remaining(slot) <= 0) { status = 'timed_out'; break; }
-        const result = await run({ executable, ...prepared, timeoutMs: Math.max(1, Math.floor(remaining(slot))), signal: slot.controller.signal });
+        const result = await run({ executable, env, ...prepared, timeoutMs: Math.max(1, Math.floor(remaining(slot))), signal: slot.controller.signal });
         finalPassLog = result.log;
         log += `\n=== 编译 ${pass}/2 ===\n${result.log}`;
         if (result.aborted || slot.controller.signal.aborted) { status = stopped(slot); break; }
@@ -96,9 +99,10 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
   }
   async function submit({ resumeId, expectedRevision }) {
     if (closed) throw error('BUILDER_SHUTDOWN', '服务正在关闭，请重新启动后编译', 503);
+    if (deleting.has(resumeId)) throw error('RESUME_DELETING', '这份简历正在删除，请稍后重试', 409);
     if (active) throw error('BUILDER_BUSY', '已有简历正在编译，请稍后重试', 409);
     let settle;
-    const slot = { controller: new AbortController(), deadline: performance.now() + config.compileTimeoutMs,
+    const slot = { resumeId, controller: new AbortController(), deadline: performance.now() + config.compileTimeoutMs,
       completion: new Promise(done => { settle = done; }) };
     slot.timer = setTimeout(() => {
       if (!slot.controller.signal.aborted) {
@@ -107,28 +111,35 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
       }
     }, config.compileTimeoutMs);
     active = slot; // Reserve before any asynchronous detection or snapshot capture.
-    const release = () => { clearTimeout(slot.timer); if (active === slot) active = null; settle(); };
+    const release = async () => {
+      clearTimeout(slot.timer);
+      try { if (slot.lease) await slot.lease.release(); }
+      catch (cause) { slot.persistenceError ??= cause; }
+      finally { if (active === slot) active = null; settle(); }
+    };
     try {
       const compiler = await detect(config, { signal: slot.controller.signal, timeoutMs: remaining(slot) });
       checkpoint(slot);
       if (!compiler.available) throw error('COMPILER_UNAVAILABLE', compiler.message, 503);
+      slot.lease = await acquireLease(compiler.toolchain || compiler, { mode: 'build', signal: slot.controller.signal });
+      checkpoint(slot);
       const snapshot = await captureUntilStopped(slot, resumeId, expectedRevision);
       checkpoint(slot);
       lastCreatedAt = Math.max(Date.now(), lastCreatedAt + 1);
       const record = await store.registerBuild({ id: randomUUID(), resumeId: snapshot.resumeId, revision: snapshot.revision,
         status: 'running', createdAt: new Date(lastCreatedAt).toISOString(), finishedAt: null, pages: null, warnings: [], error: null });
       slot.recordId = record.id;
-      slot.work = execute(slot, record, snapshot, compiler.executable);
+      slot.work = execute(slot, record, snapshot, compiler.executable, compiler.toolchain?.env || compiler.env);
       // Filesystem publication failures stay recoverable as running records.
       slot.work.then(release, cause => {
         slot.persistenceError = cause;
         const diagnostic = error('BUILD_PUBLISH_FAILED', '构建结果未能保存，请检查数据目录和磁盘空间后重启服务');
         Object.defineProperty(diagnostic, 'cause', { value: cause });
         persistenceFailures.set(record.id, diagnostic);
-        release();
+        return release();
       });
       return record;
-    } catch (cause) { release(); throw cause; }
+    } catch (cause) { await release(); throw cause; }
   }
   async function pdfPath(id) {
     const record = await store.readBuild(id);
@@ -179,5 +190,14 @@ export function createBuildManager({ config, store, prepareBuild = defaultPrepar
     if (persistenceFailures.has(id)) throw persistenceFailures.get(id);
     return record;
   }
-  return { submit, read, latestForResume: id => store.latestSuccessfulBuild(id), pdfPath, logPath, recover, shutdown };
+  async function removeResume({ resumeId, expectedRevision }) {
+    if (deleting.has(resumeId)) throw error('RESUME_DELETING', '这份简历正在删除，请稍后重试', 409);
+    if (active?.resumeId === resumeId) throw error('RESUME_BUSY', '这份简历正在编译，请完成后再删除', 409);
+    // Reserve before awaiting storage so submit cannot enter detection/capture
+    // during deletion. The active guard covers publication and pruning as well.
+    deleting.add(resumeId);
+    try { return await store.remove(resumeId, { expectedRevision }); }
+    finally { deleting.delete(resumeId); }
+  }
+  return { submit, read, removeResume, latestForResume: id => store.latestSuccessfulBuild(id), pdfPath, logPath, recover, shutdown };
 }

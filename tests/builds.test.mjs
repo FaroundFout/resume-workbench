@@ -308,6 +308,7 @@ test('cancelled record registration settles before shutdown and never begins pre
   f.store.registerBuild = async record => { started(); await new Promise(resolve => { release = resolve; }); return register(record); };
   const originalManager = f.manager;
   const manager = createBuildManager({ config: f.config, store: f.store,
+    acquireLease: async () => ({ release: async () => {} }),
     detect: async () => ({ available: true, executable: 'controlled-compiler', message: 'ready' }),
     prepareBuild: async () => { preparations++; throw Error('must not prepare after cancellation'); } });
   const pending = manager.submit({ resumeId: f.doc.id, expectedRevision: 0 });

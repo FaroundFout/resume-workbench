@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { requiredProjectFiles } from '../server/environment/manifest.mjs';
 
 const exec = promisify(execFile);
 const project = fileURLToPath(new URL('../', import.meta.url));
@@ -33,7 +34,9 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'Workbench 中文 空格 !-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const path of ['scripts', 'server', 'start.cmd']) await cp(join(project, path), join(root, path), { recursive: true });
-  try { await cp(join(project, 'setup.cmd'), join(root, 'setup.cmd')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  for (const file of ['setup.cmd', 'doctor.cmd', 'repair.cmd']) {
+    try { await cp(join(project, file), join(root, file)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   return root;
 }
 async function runtimeFixture(t) {
@@ -41,7 +44,9 @@ async function runtimeFixture(t) {
   const entry = join(root, 'scripts/setup-windows.ps1');
   // Apply the fixture profile inside PS5.1, after Windows has created the process.
   // Only this disposable copied entry changes; the production script stays intact.
-  await writeFile(entry, '\ufeff' + runtimeArchitectureProfile() + await readFile(entry, 'utf8'));
+  const source = await readFile(entry, 'utf8');
+  const firstLineEnd = source.indexOf('\n') + 1;
+  await writeFile(entry, '\ufeff' + source.slice(0, firstLineEnd) + runtimeArchitectureProfile() + source.slice(firstLineEnd));
   return root;
 }
 async function runtimePs(root, code) { return ps(root, runtimeArchitectureProfile() + code); }
@@ -115,17 +120,72 @@ test('PowerShell 5.1 maps native architecture and rejects unsupported machines',
   assert.deepEqual(result.stdout.trim().split(/\r?\n/), ['x64', 'arm64', 'x64', 'unsupported rejected']);
 });
 
-test('setup.cmd works offline without system Node, reuses healthy runtime and checks existing config', runtimeFixtures, async t => {
+test('setup defaults to strict PDF preparation and supports explicit editor-only success with existing Node', runtimeFixtures, async t => {
   const root = await runtimeFixture(t); await localNode(root); await manifest(root);
+  for (const resource of requiredProjectFiles) {
+    await mkdir(join(root, resource, '..'), { recursive: true });
+    await writeFile(join(root, resource), 'temporary public resource fixture');
+  }
   await writeFile(join(root, 'config.local.json'), JSON.stringify({ xelatexPath: 'missing-xelatex.exe' }));
   const before = await readFile(join(root, '.runtime/node/node.exe'));
-  const result = await cmd(root, 'setup.cmd', '--no-pause');
+  await assert.rejects(cmd(root, 'setup.cmd', '--no-pause'), error => {
+    assert.equal(error.code, 1); assert.match(error.stdout, /COMPILER_CONFIG_INVALID|missing-compiler/);
+    assert.match(error.stdout, /https:\/\/miktex.org\/download/); assert.match(error.stdout, /docs\/local-editor.md/);
+    assert.doesNotMatch(error.stdout, /Setup complete/); return true;
+  });
+  const result = await cmd(root, 'setup.cmd', '--no-pause --editor-only');
   assert.match(result.stdout, /reus/i); assert.match(result.stdout, /start\.cmd/);
-  assert.match(result.stdout, /https:\/\/miktex.org\/download/); assert.match(result.stdout, /docs\/local-editor.md/);
-  assert.match(result.stdout, /Node.*editor.*ready/i); assert.doesNotMatch(result.stdout, /PDF ready|Resume Workbench:/);
+  assert.match(result.stdout, /Node.*editor.*ready/i); assert.match(result.stdout, /PDF.*未准备|PDF.*not prepared/i);
+  assert.doesNotMatch(result.stdout, /PDF are ready|Resume Workbench:/);
   assert.deepEqual(await readFile(join(root, '.runtime/node/node.exe')), before);
   await writeFile(join(root, 'config.local.json'), '{invalid');
-  await assert.rejects(cmd(root, 'setup.cmd', '--no-pause'), error => error.code !== 0 && /CONFIG_INVALID|配置/.test(error.stdout + error.stderr));
+  await assert.rejects(cmd(root, 'setup.cmd', '--editor-only --no-pause'), error => error.code !== 0 && /CONFIG_INVALID|配置/.test(error.stdout + error.stderr));
+});
+
+test('fixed Windows setup and diagnostic modes pass flags and preserve child exit status without pausing', runtimeFixtures, async t => {
+  const root = await runtimeFixture(t); await localNode(root); await manifest(root);
+  await writeFile(join(root, 'scripts/doctor.mjs'), 'console.log(JSON.stringify({args:process.argv.slice(2),exe:process.execPath}));process.exit(23);');
+  const cases = [['setup.cmd', '--no-pause', '--prepare'], ['setup.cmd', '--editor-only --no-pause', '--editor-only'],
+    ['setup.cmd', '--no-pause --editor-only', '--editor-only'], ['doctor.cmd', '--no-pause', '--verify'], ['repair.cmd', '--no-pause', '--prepare']];
+  for (const [entry, args, expectedMode] of cases) {
+    await assert.rejects(cmd(root, entry, args), error => {
+      assert.equal(error.code, 23, error.stdout + error.stderr);
+      const result = JSON.parse(error.stdout.trim().split(/\r?\n/u).find(line => line.startsWith('{')));
+      assert.deepEqual(result.args, [expectedMode]);
+      assert.equal(result.exe, join(root, '.runtime/node/node.exe'));
+      assert.doesNotMatch(error.stdout, /Press any key|按任意键|Setup complete/i);
+      return true;
+    });
+  }
+});
+
+test('unknown Windows entry flags are rejected before any setup or doctor work', runtimeFixtures, async t => {
+  const root = await runtimeFixture(t); await localNode(root); await manifest(root);
+  await writeFile(join(root, 'scripts/doctor.mjs'), 'console.log("DOCTOR_STARTED");');
+  for (const [entry, args] of [['setup.cmd', '--no-pause --unknown'], ['setup.cmd', '--editor-only --unknown --no-pause'],
+    ['doctor.cmd', '--prepare --no-pause'], ['repair.cmd', '--editor-only --no-pause']]) {
+    await assert.rejects(cmd(root, entry, args), error => {
+      assert.equal(error.code, 2, error.stdout + error.stderr);
+      assert.match(error.stdout, /Usage/i);
+      assert.doesNotMatch(error.stdout, /DOCTOR_STARTED|Reusing|Downloading|Press any key/i);
+      return true;
+    });
+  }
+});
+
+test('diagnostic entries explain missing or old Node and never install it', windows, async t => {
+  const root = await fixture(t);
+  await writeFile(join(root, 'scripts/doctor.mjs'), 'console.log("DOCTOR_STARTED");');
+  const old = await oldNodeFixture(root);
+  for (const entry of ['doctor.cmd', 'repair.cmd']) {
+    for (const path of [systemPath, old.directory + ';' + systemPath]) {
+      await assert.rejects(cmd(root, entry, '--no-pause', path, root, old.env), error => {
+        assert.equal(error.code, 1, error.stdout + error.stderr); assert.match(error.stdout, /setup\.cmd/);
+        assert.doesNotMatch(error.stdout, /DOCTOR_STARTED|Downloading/i); return true;
+      });
+    }
+  }
+  await assert.rejects(access(join(root, '.runtime/node/node.exe')), error => error.code === 'ENOENT');
 });
 
 test('download, checksum, extraction and version failures preserve existing runtime in PowerShell 5.1', runtimeFixtures, async t => {

@@ -3,6 +3,7 @@ import { exportBackup, importBackup } from '../backups.mjs';
 import { AppError } from '../errors.mjs';
 import { readJson, readBody, requireContentType, IMAGE_LIMIT, BACKUP_LIMIT } from './body.mjs';
 import { sendJson, sendBytes, sendFile } from './files.mjs';
+import { toPublicEnvironment, environmentMessage } from '../environment/diagnostics.mjs';
 
 const invalid = message => new AppError('VALIDATION_ERROR', message, 400);
 function id(value) {
@@ -11,8 +12,8 @@ function id(value) {
 }
 // Select controlled diagnostics instead of serializing internal discovery objects.
 function publicEnvironment(environment) {
-  const available = environment.available === true;
-  return { available, message: available ? 'XeLaTeX 可用，可以编译简历。' : '未找到可用的 XeLaTeX，请检查安装及 config.local.json 中的 xelatexPath。简历仍可编辑、保存和备份。' };
+  const report = toPublicEnvironment(environment);
+  return { ...report, message: environmentMessage(report) };
 }
 export async function route(request, response, url, { store, builds, environment }) {
   const method = request.method;
@@ -34,6 +35,7 @@ export async function route(request, response, url, { store, builds, environment
     const resumeId = id(resumeRoute[1]); const action = resumeRoute[2]; const assetId = resumeRoute[3];
     if (!action && method === 'GET') { sendJson(response, 200, { ...await store.read(resumeId), latestBuild: await builds.latestForResume(resumeId) }); return; }
     if (!action && method === 'PUT') { const { expectedRevision, name, data } = await readJson(request); sendJson(response, 200, await store.save(resumeId, { expectedRevision, name, data })); return; }
+    if (!action && method === 'DELETE') { const { expectedRevision } = await readJson(request); sendJson(response, 200, await builds.removeResume({ resumeId, expectedRevision })); return; }
     if (action === 'copy' && !assetId && method === 'POST') { const { name, language, draft } = await readJson(request); sendJson(response, 201, await store.copy(resumeId, { name, language, draft })); return; }
     if (action === 'assets' && !assetId && method === 'POST') {
       const mime = requireContentType(request, ['image/png', 'image/jpeg']); const bytes = await readBody(request, IMAGE_LIMIT);
