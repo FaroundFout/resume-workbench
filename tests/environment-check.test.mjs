@@ -8,7 +8,7 @@ import { discoverCompiler } from '../server/compiler/environment.mjs';
 
 const fonts = ['Lato/Lato-Regular.ttf', 'Lato/Lato-Bold.ttf', 'Lato/Lato-Italic.ttf', 'Lato/Lato-BoldItalic.ttf', 'Simsun/SourceHanSerifCN-Regular.ttf', 'Simsun/SourceHanSerifCN-Bold.ttf'];
 const projectFiles = [...fonts.map(name => `font/${name}`), 'font/Lato/OFL.txt', 'font/Simsun/LICENSE.txt', 'templates/purecv-en/main.tex', 'templates/purecv-zh/main.tex', 'templates/shared/macros.tex', 'resume/uestc.png', 'resume_zh/uestc.png'];
-const texFiles = ['article.cls', 'geometry.sty', 'fontspec.sty', 'xeCJK.sty', 'titlesec.sty', 'enumitem.sty', 'tabularx.sty', 'array.sty', 'graphicx.sty', 'hyperref.sty', 'accsupp.sty'];
+const texFiles = ['article.cls', 'geometry.sty', 'fontspec.sty', 'xeCJK.sty', 'ctexhook.sty', 'ctexpatch.sty', 'titlesec.sty', 'enumitem.sty', 'tabularx.sty', 'array.sty', 'graphicx.sty', 'hyperref.sty', 'accsupp.sty'];
 test('child-local environment is passed without global mutation and separates lookup stdout from errors', async () => {
   const result = await runProcess({ executable: process.execPath, cwd: tmpdir(), args: ['-e', 'console.log(process.env.PURECV_TEST_CHILD); console.error("diagnostic only");'],
     timeoutMs: 3000, env: { ...process.env, PURECV_TEST_CHILD: 'selected toolchain' } });
@@ -59,6 +59,23 @@ test('version success with a missing geometry file never claims PDF readiness', 
   await assert.rejects(readdir(f.config.dataDir), error => error.code === 'ENOENT');
 }));
 
+test('installed xeCJK still requires both CTeX support files before smoke verification', async () => fixture(async f => {
+  const { inspectEnvironment, packageIdsByFlavour } = await api();
+  await Promise.all(['ctexhook.sty', 'ctexpatch.sty'].map(file => rm(join(f.dependencies, file))));
+  const report = await inspectEnvironment(f.config, { toolchain: f.toolchain, run: async options => {
+    if (['ctexhook.sty', 'ctexpatch.sty'].includes(options.args.at(-1))) return { exitCode: 1, log: '' };
+    return f.run(options);
+  } });
+  assert.equal(report.state, 'missing-packages');
+  assert.equal(report.pdfReady, false);
+  assert.ok(report.checks.some(check => check.id === 'xeCJK.sty' && check.status === 'passed'));
+  assert.deepEqual(report.checks.filter(check => check.code === 'TEX_PACKAGE_MISSING').map(check => check.id), ['ctexhook.sty', 'ctexpatch.sty']);
+  for (const flavour of ['miktex', 'texlive']) {
+    assert.equal(packageIdsByFlavour[flavour]['ctexhook.sty'], 'ctex');
+    assert.equal(packageIdsByFlavour[flavour]['ctexpatch.sty'], 'ctex');
+  }
+}));
+
 test('every required font, template, macro, logo and license fails as a project resource', async () => fixture(async f => {
   const { inspectEnvironment, requiredProjectFiles, requiredFonts } = await api();
   assert.deepEqual([...requiredFonts].sort(), [...fonts].sort());
@@ -74,7 +91,7 @@ test('every required font, template, macro, logo and license fails as a project 
   }
 }));
 
-test('healthy direct dependencies require real verification and use only installer-disabled lookup', async () => fixture(async f => {
+test('healthy required dependencies require real verification and use only installer-disabled lookup', async () => fixture(async f => {
   const { inspectEnvironment, requiredTexFiles, packageIdsByFlavour } = await api();
   const report = await inspectEnvironment(f.config, { toolchain: f.toolchain, run: f.run });
   assert.equal(report.state, 'verification-required');

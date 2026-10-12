@@ -94,7 +94,10 @@ export async function preparePdfEnvironment(config, { signal, log = () => {}, in
       signal?.throwIfAborted();
       if (!trustworthyInspection(checked)) return finish({ ...checked, checks: [...checked.checks, ...verification.checks] });
       environment = await repair(checked, missingFiles(verification));
-      if (environment.checks.some(check => ['TEX_PACKAGE_UNKNOWN', 'TEXLIVE_REPAIR_REQUIRED'].includes(check.code))) return finish(environment);
+      if (environment.checks.some(check => ['TEX_PACKAGE_UNKNOWN', 'TEXLIVE_REPAIR_REQUIRED'].includes(check.code))) {
+        return finish({ ...environment, checks: [...environment.checks, ...verification.checks],
+          missingTexFiles: [...new Set([...missingFiles(environment), ...missingFiles(verification)])] });
+      }
       if (!trustworthyInspection(environment) || missingFiles(environment).length) return finish({ ...environment, checks: [...environment.checks, ...verification.checks] });
     }
   } catch (cause) {

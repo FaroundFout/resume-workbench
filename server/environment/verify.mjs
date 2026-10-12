@@ -113,7 +113,20 @@ export async function verifyPdfEnvironment(config, toolchain, options = {}) {
             report.missingTexFiles = [...new Set([...(report.missingTexFiles ?? []), ...missing])];
             for (const file of missing) report.checks.push(failedCheck(file, 'TEX_PACKAGE_MISSING', `样例缺少 ${file}。`));
           }
-          if (result.exitCode !== 0) throw new AppError('LATEX_ERROR', '样例编译失败，请查看本地诊断日志。', 500);
+          if (result.exitCode !== 0) {
+            // A release warning is an additional diagnosis, not proof of the
+            // fatal error's cause. Repair a known missing file first; retain
+            // the compilation error and never reject a PDF for this alone.
+            const format = !missing.length && (result.log ?? '').match(/LaTeX Warning:\s*You have requested release\s+[`'"](?<required>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+of LaTeX,\s*but only release\s+[`'"](?<available>\d{4}[/-]\d{2}[/-]\d{2})[`'"]\s+is available/iu);
+            if (format) {
+              const action = toolchain.flavour === 'miktex'
+                ? '请在 MiKTeX Console 的 Updates 中更新已安装宏包；若仍显示旧版本，再重建 XeLaTeX 格式。'
+                : '请使用所选 TeX Live 的管理工具更新宏包并重建 XeLaTeX 格式。';
+              report.checks.push(failedCheck(`${id}-format`, 'TEX_FORMAT_OUTDATED',
+                `日志同时提示宏包要求 LaTeX ${format.groups.required}，当前格式为 ${format.groups.available}。${action}完成后运行 doctor.cmd；具体编译错误仍见日志。`));
+            }
+            throw new AppError('LATEX_ERROR', '样例编译失败，请查看本地诊断日志。', 500);
+          }
           await validateSmokePdf({ path, log: result.log });
         }
         report.checks.push({ id, status: 'passed', code: 'PDF_SMOKE_PASSED', message: `${language} 样例两遍编译通过。` });

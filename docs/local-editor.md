@@ -25,7 +25,7 @@ setup 准备 Node 后检查完整项目资源和所选 XeLaTeX 的依赖，为�
 
 - Linux/macOS 需手动安装 Node.js 22 或更新版本。手动安装可用 `node --version` 检查；Windows portable 版本可用 `.runtime\node\node.exe --version` 检查。
 - 生成 PDF 时需要 MiKTeX 或 TeX Live 中的 XeLaTeX。安装发行版后重新打开终端，再使用已有的 XeLaTeX。仅编辑、保存和备份时可以暂时没有它。
-- 网页模板直接需要 article、geometry、fontspec、xeCJK、titlesec、enumitem、tabularx、array、graphicx、hyperref、accsupp 及它们的依赖；清单统一维护在 `server/environment/manifest.mjs`。原 LaTeX 手工模板还使用 fontawesome5，和网页依赖不同。未知依赖不会从日志自动转成安装参数，请人工检查模板。
+- 网页模板直接需要 article、geometry、fontspec、xeCJK、titlesec、enumitem、tabularx、array、graphicx、hyperref、accsupp 及它们的依赖。清单还明确检查 xeCJK 必需的 `ctexhook.sty`、`ctexpatch.sty`，两者统一安装 `ctex`，不会重复安装；清单维护在 `server/environment/manifest.mjs`。原 LaTeX 手工模板还使用 fontawesome5，和网页依赖不同。未知依赖不会从日志自动转成安装参数，请人工检查模板。
 - 字体使用项目内的 Lato 和思源宋体（Source Han Serif，存放在历史名称 font/Simsun/ 下）。这些字体随源码提供，请保留 font/ 及其许可文件。
 
 本地网页不需要 make、npm 依赖、前端构建、Docker 或购买服务器。make 与 fswatch 仅用于 README 中原 LaTeX 手工编译/监控方式。当前优先验证 Windows；Linux/macOS 入口提供源码运行方式，不代表完成这些系统的运行验证。
@@ -131,6 +131,8 @@ node scripts/import-personal-data.mjs ".purecv/private-resume.zh.json"
 - **未找到 XeLaTeX**：仍可保存和备份；检查是否装有 MiKTeX/TeX Live。已安装时确认实际可执行文件，再设置 xelatexPath 并重启。网页“环境与使用帮助”提供同样入口。
 - **编译器已找到但编译失败**：检查页面显示的构建日志与错误。提示 `File '…sty' not found` 通常表示缺宏包；停止服务，在完整项目根目录运行 `repair.cmd`，为已有 MiKTeX 补齐清单内缺包并验收中文、英文 PDF，通过后重新运行 `start.cmd`。服务启动会检查依赖，正式简历编译禁止 MiKTeX 临时安装宏包；安装与修复集中在 setup/repair 阶段。TeX Live、未识别的依赖或无法确认权限的共享安装需按诊断使用发行版管理工具人工处理。
 - **安装 geometry 后仍报 xeCJK 缺失**：`geometry.sty` 已补齐后，编译才会继续并暴露下一个缺包；这并不表示 geometry 安装失败。`xeCJK.sty` 对应 MiKTeX 宏包名 `xecjk`。优先运行 `repair.cmd` 检查整份依赖清单；人工处理时，在 MiKTeX Console 的 Packages 中安装 `geometry`、`xecjk` 及日志提示的其他宏包，再运行 `doctor.cmd` 验收，不要删除模板中的 `\usepackage`。
+- **缺少 ctexhook.sty 或 ctexpatch.sty**：这两个文件是 xeCJK 的支持依赖，都包含在 MiKTeX 的 [`ctex` 宏包](https://miktex.org/packages/ctex/files)中。新版 `repair.cmd` 会统一补齐；旧版报 `TEX_PACKAGE_UNKNOWN` 时先更新项目代码，也可在同一用户的 MiKTeX Console > Packages 搜索并安装 `ctex`，随后运行 `doctor.cmd`。未知宏包诊断会保留具体缺失文件名。
+- **宏包要求的 LaTeX 版本比当前格式新**：例如日志要求 `2026/06/01`，当前却只有 `2025-11-01`。先处理明确的缺包；若仍失败，在所选 MiKTeX 的 Console > Updates 中执行 Check for Updates、Update now，按程序提示重启并再次检查更新，直到没有待更新项，见[官方维护说明](https://miktex.org/howto/miktex-console)。若更新后仍显示旧版本，在 Console > Settings > Formats 中选中 `xelatex` 并右键 Build format；也可在同一 MiKTeX 环境运行 `miktex formats build xelatex`，见[官方格式管理说明](https://docs.miktex.org/manual/miktex-formats.html)。随后运行 `doctor.cmd`；两种语言通过后运行 `start.cmd`。脚本不会自动升级整个发行版，单独的版本警告不会被当作当前编译失败的唯一原因。
 - **字体或素材缺失**：确认移动项目时保留 font/、模板与默认校徽，必要时重新获取完整源码；不要手工编辑资产 ID。
 - **端口占用**：config.local.json 修改 port 后重启，使用新网址。
 - **无法取得数据目录独占权**：先关闭同一数据目录的其他实例；更改网页 port 不能绕过此限制。若没有其他实例，可能是系统保留或其他程序占用了保护端口，按上文说明选择另一 dataDir。

@@ -85,6 +85,34 @@ test('a failed first language still evaluates the second language and cannot rep
   assert.deepEqual(report.missingTexFiles,['geometry.sty']);
   assert.ok(report.checks.some(c=>c.id==='geometry.sty'&&c.code==='TEX_PACKAGE_MISSING'));
 });
+
+const outdatedFormatWarning = "LaTeX Warning: You have requested release `2026/06/01' of LaTeX,\n               but only release `2025-11-01' is available.\n";
+test('failed compilation with an older LaTeX format gives an update diagnosis', async t => {
+  const report = await verify(t, { runXeLaTeX: async () => ({ exitCode: 1, log: `${outdatedFormatWarning}! Undefined control sequence.` }) });
+  assert.equal(report.pdfReady, false);
+  const check = report.checks.find(check => check.code === 'TEX_FORMAT_OUTDATED');
+  assert.ok(check);
+  assert.match(check.message, /2026\/06\/01/);
+  assert.match(check.message, /2025-11-01/);
+  assert.match(check.message, /MiKTeX Console.*Updates/);
+  assert.match(check.message, /格式/);
+  assert.ok(report.checks.some(check => check.code === 'LATEX_ERROR'), 'retain the compile failure rather than attributing its cause to a warning');
+});
+
+test('a missing CTeX file remains repairable when a release warning is also present', async t => {
+  const report = await verify(t, { runXeLaTeX: async () => ({ exitCode: 1,
+    log: `${outdatedFormatWarning}! LaTeX Error: File \`ctexhook.sty' not found.\nl.56 \\RequirePackage { ctexpatch }` }) });
+  assert.deepEqual(report.missingTexFiles, ['ctexhook.sty']);
+  assert.ok(report.checks.some(check => check.id === 'ctexhook.sty' && check.code === 'TEX_PACKAGE_MISSING'));
+  assert.ok(!report.checks.some(check => check.code === 'TEX_FORMAT_OUTDATED'));
+});
+
+test('a release warning alone does not reject successful bilingual PDF verification', async t => {
+  const report = await verify(t, { runXeLaTeX: async ({ cwd }) => {
+    await writeFile(join(cwd, 'resume.pdf'), pdf); return { exitCode: 0, log: `${outdatedFormatWarning}${output}` };
+  } });
+  assert.equal(report.pdfReady, true); assert.equal(report.state, 'ready');
+});
 test('a stale first-pass PDF cannot make an empty second pass succeed', async t => {
   let count=0; const result=await verify(t,{runXeLaTeX:async({cwd})=>{
     if(++count%2===1)await writeFile(join(cwd,'resume.pdf'),pdf);

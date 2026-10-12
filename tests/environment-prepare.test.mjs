@@ -71,6 +71,35 @@ test('healthy environment verifies without network or package database update', 
     install: async () => { throw Error('must not install'); }, verify: async () => ready });
   assert.equal(result.state, 'ready');
 });
+
+test('missing CTeX support files repair one known package and require fresh verification', async () => {
+  let inspections = 0; let verifications = 0; const batches = [];
+  const result = await preparePdfEnvironment(config, { inspect: async () => report(inspections++ ? [] : ['ctexhook.sty', 'ctexpatch.sty']),
+    acquireLease: async () => ({ release: async () => {} }), install: async (_toolchain, ids) => { batches.push(ids); },
+    verify: async () => { verifications++; return ready; } });
+  assert.equal(result.pdfReady, true);
+  assert.deepEqual(batches, [['ctex']]);
+  assert.equal(inspections, 2); assert.equal(verifications, 1);
+});
+
+test('smoke-discovered CTeX support files use the same fixed package mapping', async () => {
+  let verifications = 0; const batches = [];
+  const result = await preparePdfEnvironment(config, { inspect: async () => report(),
+    acquireLease: async () => ({ release: async () => {} }), install: async (_toolchain, ids) => { batches.push(ids); },
+    verify: async () => verifications++ ? ready : { ...report(['ctexhook.sty', 'ctexpatch.sty']), state: 'verification-failed' } });
+  assert.equal(result.pdfReady, true); assert.deepEqual(batches, [['ctex']]); assert.equal(verifications, 2);
+});
+
+test('an unknown smoke dependency remains visible and never becomes an install argument', async () => {
+  let installations = 0;
+  const result = await preparePdfEnvironment(config, { inspect: async () => report(),
+    acquireLease: async () => ({ release: async () => {} }), install: async () => { installations++; },
+    verify: async () => ({ ...report(['not-listed.sty']), missingTexFiles: ['not-listed.sty'], state: 'missing-packages' }) });
+  assert.equal(result.pdfReady, false); assert.equal(installations, 0);
+  assert.ok(result.checks.some(check => check.code === 'TEX_PACKAGE_UNKNOWN'));
+  assert.ok(result.checks.some(check => check.id === 'not-listed.sty' && check.code === 'TEX_PACKAGE_MISSING'));
+  assert.deepEqual(result.missingTexFiles, ['not-listed.sty']);
+});
 test('unknown file identifiers never become install arguments and TeX Live remains manual', async () => {
   for (const environment of [report(['--admin.sty']), report(['geometry.sty'], 'texlive')]) {
     const result = await preparePdfEnvironment(config, { inspect: async () => environment, acquireLease: async () => { throw Error('no lease needed'); }, install: async () => { throw Error('must not install'); } });
@@ -116,6 +145,12 @@ test('provider validates same installation and installs only whitelist ids with 
   assert.deepEqual(commands.map(c => c.args), [['packages', 'update-package-database'], ['packages', 'install', 'geometry', 'latex-tools']]);
   assert.ok(commands.every(c => c.executable === selected.manager && c.timeoutMs <= 600000));
   await assert.rejects(installMissingPackages(selected, ['--admin'], { run: async () => { throw Error('unsafe execution'); } }), e => e.code === 'TEX_PACKAGE_UNKNOWN');
+}));
+
+test('provider installs CTeX once without a full upgrade or an administrator scope', async () => providerFixture(async selected => {
+  const commands = [];
+  await installMissingPackages(selected, ['ctex', 'ctex'], { run: async options => { commands.push(options.args); return { exitCode: 0, log: '' }; } });
+  assert.deepEqual(commands, [['packages', 'update-package-database'], ['packages', 'install', 'ctex']]);
 }));
 test('download transient failures retry twice, while permission and deadline failures stop promptly', async () => providerFixture(async selected => {
   let updates = 0;
